@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y pkg-config
 # RUN make -j4
 # RUN make install
 
-# ENV PKG_CONFIG_ALLOW_CROSS=1
+ENV PKG_CONFIG_ALLOW_CROSS=1
 # ENV OPENSSL_STATIC=true
 # ENV OPENSSL_DIR=/musl
 
