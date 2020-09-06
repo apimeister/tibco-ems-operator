@@ -3,10 +3,9 @@ name: CI
 on: [push]
 
 jobs:
-  build-pdfgenerator:
+  build-tibco-ems-operator:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: build container
       run: docker build -t tibco-ems-operator .
-      working-directory: ./tibco-ems-operator
