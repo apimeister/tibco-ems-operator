@@ -1,0 +1,6 @@
+apiVersion: tibcoems.apimeister.com/v1
+kind: Queue
+metadata:
+  name: q.test.1
+spec:
+  name: q.test.1
