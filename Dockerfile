@@ -7,7 +7,7 @@
 # RUN emerge rust
 FROM rust:1.46.0-alpine AS builder
 # RUN apk add --update curl gcc g++ pkgconfig perl make musl musl-dev apk-tools-static
-# RUN apt-get update && apt-get install -y libssl-dev pkg-config musl musl-tools musl-dev linux-headers
+RUN apt-get update && apt-get install -y pkg-config
 # WORKDIR /
 #RUN ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl/asm &&     ln -s /usr/include/asm-generic /usr/include/x86_64-linux-musl/asm-generic &&     ln -s /usr/include/linux /usr/include/x86_64-linux-musl/linux
 # RUN mkdir /musl
