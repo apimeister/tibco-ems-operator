@@ -5,7 +5,7 @@
 # RUN emerge --oneshot sys-apps/portage
 # RUN emerge --oneshot sandbox
 # RUN emerge rust
-FROM rust:1.46.0-alpine AS builder
+FROM rust:1.46.0 AS builder
 # RUN apk add --update curl gcc g++ pkgconfig perl make musl musl-dev apk-tools-static
 RUN apt-get update && apt-get install -y pkg-config
 # WORKDIR /
