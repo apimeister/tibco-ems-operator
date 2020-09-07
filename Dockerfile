@@ -7,7 +7,8 @@
 # RUN emerge rust
 FROM rust:1.46.0 AS builder
 # RUN apk add --update curl gcc g++ pkgconfig perl make musl musl-dev apk-tools-static
-RUN apt-get update && apt-get install -y pkg-config
+# RUN apt-get update && apt-get install -y pkg-config musl musl-tools libssl-dev
+# RUN ln -s /usr/include/x86_64-linux-gnu/openssl/opensslconf.h /usr/include/openssl/opensslconf.h 
 # WORKDIR /
 #RUN ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl/asm &&     ln -s /usr/include/asm-generic /usr/include/x86_64-linux-musl/asm-generic &&     ln -s /usr/include/linux /usr/include/x86_64-linux-musl/linux
 # RUN mkdir /musl
@@ -19,23 +20,27 @@ RUN apt-get update && apt-get install -y pkg-config
 # RUN make -j4
 # RUN make install
 
-ENV PKG_CONFIG_ALLOW_CROSS=1
+# ENV PKG_CONFIG_ALLOW_CROSS=1
 # ENV OPENSSL_STATIC=true
 # ENV OPENSSL_DIR=/musl
 
 WORKDIR /usr/src/
-RUN rustup target add x86_64-unknown-linux-musl
+# RUN rustup target add x86_64-unknown-linux-musl
 # build project
 RUN USER=root cargo new tibco-ems-operator
 WORKDIR /usr/src/tibco-ems-operator
 COPY Cargo.toml .
-RUN cargo build --release
+# RUN cargo tree
+#RUN cargo build --release --target x86_64-unknown-linux-musl
+RUN cargo build
 COPY src ./src
-RUN cargo tree
-RUN cargo install --target x86_64-unknown-linux-musl --path .
+RUN cargo install --path .
 
 # Bundle Stage
-FROM scratch
+# FROM scratch
+FROM alpine
+RUN apk add libgcc libc6-compat
+RUN ln -s /lib/libc.musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2
 COPY --from=builder /usr/local/cargo/bin/tibco-ems-operator .
 USER 1000
 CMD ["./tibco-ems-operator"]

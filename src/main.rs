@@ -1,68 +1,32 @@
-#[macro_use]
 extern crate serde_derive;
+use kube::{api::{Api, ListParams, Meta, WatchEvent}, Client};
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+use futures::{StreamExt, TryStreamExt};
+use serde::{Serialize, Deserialize};
+use kube_derive::CustomResource;
 
-use kube::{
-    api::{Informer, Object, RawApi, Void, WatchEvent},
-    client::APIClient,
-    config,
-};
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Queue {
-    pub name: String
+#[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
+#[kube(group = "tibcoems.apimeister.com", version = "v1", kind="Queue", namespaced)]
+pub struct QueueSpec {
+    pub name: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Topic {
-    pub name: String
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Bridge {
-    pub name: String
-}
-
-// This is a convenience alias that describes the object we get from Kubernetes
-type KubeQueue = Object<Queue, Void>;
-
-fn main() {
-    // Load the kubeconfig file.
-    let kubeconfig = config::load_kube_config().expect("kubeconfig failed to load");
-
-    // Create a new client
-    let client = APIClient::new(kubeconfig);
-
+#[tokio::main]
+async fn main() -> Result<(), kube::Error>  {
+    let client = Client::try_default().await?;
     // Set a namespace. We're just hard-coding for now.
     let namespace = "default";
 
-    // Describe the CRD we're working with.
-    // This is basically the fields from our CRD definition.
-    let resource = RawApi::customResource("queues")
-        .group("tibcoems.apimeister.com")
-        .within(&namespace);
-
-    // Create our informer and start listening.
-    let informer = Informer::raw(client, resource)
-        .init()
-        .expect("informer init failed");
-    loop {
-        informer.poll().expect("informer poll failed");
-
-        // Now we just do something each time a new book event is triggered.
-        while let Some(event) = informer.pop() {
-            handle(event);
+    let crds: Api<CustomResourceDefinition> = Api::namespaced(client, namespace);
+    let lp = ListParams::default().fields("apiVersion=tibcoems.apimeister.com").timeout(20);
+    let mut stream = crds.watch(&lp, "0").await?.boxed();
+    while let Some(status) = stream.next().await {
+        match status {
+            WatchEvent::Added(s) => println!("Added {}", Meta::name(&s)),
+            WatchEvent::Modified(s) => println!("Modified: {}", Meta::name(&s)),
+            WatchEvent::Deleted(s) => println!("Deleted {}", Meta::name(&s)),
+            WatchEvent::Error(s) => println!("{}", s),
         }
     }
-}
-
-fn handle(event: WatchEvent<KubeQueue>) {
-    match event {
-        WatchEvent::Added(queue) => println!(
-            "Added a Queue {} with name '{}'",
-            queue.metadata.name, queue.spec.name
-        ),
-        WatchEvent::Deleted(queue) => println!("Deleted a queue {}", queue.metadata.name),
-        WatchEvent::Error(e) => println!("Error {}", e),
-        WatchEvent::Modified(queue) => println!("Modified Queue {}", queue.metadata.name)
-    }
+    Ok(())
 }
