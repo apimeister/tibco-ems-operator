@@ -6,6 +6,7 @@
 # RUN emerge --oneshot sandbox
 # RUN emerge rust
 FROM rust:1.46.0-alpine AS builder
+RUN apk add --update gcc g++ pkgconfig
 # RUN apk add --update curl gcc g++ pkgconfig perl make musl musl-dev apk-tools-static
 # RUN apt-get update && apt-get install -y pkg-config musl musl-tools libssl-dev
 # RUN ln -s /usr/include/x86_64-linux-gnu/openssl/opensslconf.h /usr/include/openssl/opensslconf.h 
