@@ -19,13 +19,15 @@ async fn main() -> Result<(), kube::Error>  {
 
     let crds: Api<CustomResourceDefinition> = Api::namespaced(client, namespace);
     let lp = ListParams::default().fields("apiVersion=tibcoems.apimeister.com").timeout(20);
+
     let mut stream = crds.watch(&lp, "0").await?.boxed();
-    while let Some(status) = stream.next().await {
+    while let Some(status) = stream.try_next().await? {
         match status {
             WatchEvent::Added(s) => println!("Added {}", Meta::name(&s)),
             WatchEvent::Modified(s) => println!("Modified: {}", Meta::name(&s)),
             WatchEvent::Deleted(s) => println!("Deleted {}", Meta::name(&s)),
             WatchEvent::Error(s) => println!("{}", s),
+            _ => {}
         }
     }
     Ok(())
