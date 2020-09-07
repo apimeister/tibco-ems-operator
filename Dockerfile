@@ -33,12 +33,11 @@ WORKDIR /usr/src/tibco-ems-operator
 COPY Cargo.toml .
 # RUN cargo tree
 #RUN cargo build --release --target x86_64-unknown-linux-musl
-RUN cargo build
+# RUN cargo build
 COPY src ./src
 RUN cargo install --path .
 
 # Bundle Stage
-# FROM scratch
 FROM alpine
 RUN apk add libgcc libc6-compat
 RUN ln -s /lib/libc.musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2
