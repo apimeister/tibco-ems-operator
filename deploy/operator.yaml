@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tibco-ems-operator
+spec:
+  serviceAccountName: tibco-ems-operator-account
+  containers:
+  - name: tibco-ems-operator
+    image: tibco-ems-operator
+    imagePullPolicy: Never
+    env:
+      - name: KUBERNETES_SERVICE_HOST
+        value: kubernetes
