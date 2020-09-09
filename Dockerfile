@@ -19,5 +19,5 @@ RUN cargo install --path .
 FROM centos
 COPY --from=builder /usr/local/cargo/bin/tibco-ems-operator .
 COPY bin/libtibemsadmin64.so bin/libtibems64.so /usr/lib
-
+COPY bin/tibemsadmin ./
 CMD ["./tibco-ems-operator"]

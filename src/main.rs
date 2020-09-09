@@ -4,6 +4,7 @@ use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
 use kube::config::Config;
+use std::process::Command;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", kind="Queue", namespaced)]
@@ -47,6 +48,13 @@ async fn main() -> Result<(), kube::Error>  {
                         }
                         let json_str = serde_json::to_string_pretty( &queue);
                         println!("{}",json_str.unwrap());
+
+                        let output = Command::new("sh")
+                            .arg("-c")
+                            .arg("echo hello")
+                            .output()
+                            .expect("failed to execute process");
+                        println!("{:?}",output);
                     },
                     WatchEvent::Deleted(queue) => println!("Deleted {}", Meta::name(&queue)),
                     WatchEvent::Error(queue) => println!("error: {}", queue),
