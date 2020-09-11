@@ -43,8 +43,9 @@ pub struct TopicSpec {
 pub struct BridgeSpec {
     pub source_type: String,
     pub source_name: String,
-    pub destination_type: String,
-    pub destination_name: String,
+    pub target_type: String,
+    pub target_name: String,
+    pub selector: Option<String>,
 }
 
 async fn watch_queues() -> Result<(),kube::Error>{
@@ -57,7 +58,7 @@ async fn watch_queues() -> Result<(),kube::Error>{
             let crds: Api<Queue> = Api::namespaced(client, &namespace);
             let lp = ListParams::default();
 
-            println!("streaming events queues ...");
+            println!("subscribing events of type queues.tibcoems.apimeister.com/v1");
             let mut stream = crds.watch(&lp, "0").await?.boxed();
             while let Some(status) = stream.try_next().await? {
                 match status {
@@ -89,7 +90,7 @@ async fn watch_topics() -> Result<(),kube::Error>{
           let crds: Api<Topic> = Api::namespaced(client, &namespace);
           let lp = ListParams::default();
 
-          println!("streaming events topics ...");
+          println!("subscribing events of type topics.tibcoems.apimeister.com/v1");
           let mut stream = crds.watch(&lp, "0").await?.boxed();
           while let Some(status) = stream.try_next().await? {
               match status {
@@ -121,7 +122,7 @@ async fn watch_bridges() -> Result<(),kube::Error>{
           let crds: Api<Bridge> = Api::namespaced(client, &namespace);
           let lp = ListParams::default();
 
-          println!("streaming events bridges ...");
+          println!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
           let mut stream = crds.watch(&lp, "0").await?.boxed();
           while let Some(status) = stream.try_next().await? {
               match status {
@@ -214,10 +215,39 @@ fn delete_topic(topic: Topic){
 }
 
 fn create_bridge(bridge: Bridge){
-  println!("create bridge source=type:dest_name target=type:dest_name [selector=msg-selector]");
+  let bridge_name: String = bridge.metadata.name.unwrap();
+  println!("creating bridge {}",bridge_name);
+  let mut source_name = bridge.spec.source_name;
+  let mut target_name = bridge.spec.target_name;
+  source_name.make_ascii_uppercase();
+  target_name.make_ascii_uppercase();
+  let script = "create bridge ".to_owned()
+        +"source="+&bridge.spec.source_type+":"+&source_name
+        +"target="+&bridge.spec.target_type+":"+&target_name
+        +&"\n";
+  println!("script: {}",script);
+  write_script_file(script);
+  let child = run_tibemsadmin();
+
+  println!("{:?}",child.wait_with_output());
 }
+
 fn delete_bridge(bridge: Bridge){
-  println!("delete bridge source=type:dest_name target=type:dest_name");
+  let bridge_name: String = bridge.metadata.name.unwrap();
+  println!("deleting bridge {}",bridge_name);
+  let mut source_name = bridge.spec.source_name;
+  let mut target_name = bridge.spec.target_name;
+  source_name.make_ascii_uppercase();
+  target_name.make_ascii_uppercase();
+  let script = "delete bridge ".to_owned()
+        +"source="+&bridge.spec.source_type+":"+&source_name
+        +"target="+&bridge.spec.target_type+":"+&target_name
+        +&"\n";
+  println!("script: {}",script);
+  write_script_file(script);
+  let child = run_tibemsadmin();
+
+  println!("{:?}",child.wait_with_output());
 }
 
 #[tokio::main]

@@ -25,7 +25,7 @@ spec:
             cpu: "100m"
         env:
           - name: KUBERNETES_SERVICE_HOST
-            value: kubernetes
+            value: kubernetes.default.svc.cluster.local
           - name: KUBERNETES_NAMESPACE
             valueFrom:
               fieldRef:
