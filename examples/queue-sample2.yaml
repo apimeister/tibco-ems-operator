@@ -1,0 +1,13 @@
+apiVersion: tibcoems.apimeister.com/v1
+kind: Queue
+metadata:
+  name: q.test.2
+spec:
+  expiration: 12345
+  global: true
+  maxbytes: 12345
+  maxmsgs: 12345
+  maxRedelivery: 12345
+  overflowPolicy: 0
+  prefetch: 5
+  redeliveryDelay: 0

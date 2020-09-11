@@ -15,9 +15,12 @@ RUN cargo install --path .
 
 
 # Bundle Stage
-# FROM alpine
-FROM centos
+FROM centos as final
+RUN ln -s /usr/lib64 /usr/lib/64
+RUN cp /usr/lib64/libz.so.1 /usr/lib64/libz.so
+RUN cp /usr/lib64/libcrypto.so.1.1 /usr/lib64/libcrypto.so
+RUN cp /usr/lib64/libssl.so.1.1 /usr/lib64/libssl.so
+COPY bin/tibemsadmin/bin/tibemsadmin /usr/bin
+COPY bin/tibemsadmin/lib/libtibemsadmin64.so bin/tibemsadmin/lib/libtibems64.so /usr/lib/
 COPY --from=builder /usr/local/cargo/bin/tibco-ems-operator .
-COPY bin/libtibemsadmin64.so bin/libtibems64.so /usr/lib
-COPY bin/tibemsadmin ./
 CMD ["./tibco-ems-operator"]

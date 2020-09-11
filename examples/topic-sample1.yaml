@@ -1,5 +1,5 @@
 apiVersion: tibcoems.apimeister.com/v1
-kind: Queue
+kind: Topic
 metadata:
-  name: q.test.1
+  name: t.test.1
 spec: {}
