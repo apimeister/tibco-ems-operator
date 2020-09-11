@@ -5,6 +5,7 @@ use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
 use kube::config::Config;
 use std::process::Command;
+use std::process::Child;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -88,7 +89,7 @@ async fn watch_topics() -> Result<(),kube::Error>{
           let crds: Api<Topic> = Api::namespaced(client, &namespace);
           let lp = ListParams::default();
 
-          println!("streaming events queues ...");
+          println!("streaming events topics ...");
           let mut stream = crds.watch(&lp, "0").await?.boxed();
           while let Some(status) = stream.try_next().await? {
               match status {
@@ -96,7 +97,7 @@ async fn watch_topics() -> Result<(),kube::Error>{
                     create_topic(topic);
                   },
                   WatchEvent::Modified(topic) => {
-                    println!("modified queue event not implemented: {}",topic.metadata.name.unwrap());
+                    println!("modified topic event not implemented: {}",topic.metadata.name.unwrap());
                   },
                   WatchEvent::Deleted(topic) => {
                     delete_topic(topic);
@@ -110,34 +111,44 @@ async fn watch_topics() -> Result<(),kube::Error>{
   Ok(())
 }
 
-// fn run_tibemsadmin() -> std::io::Result<Output>{
-//   let username = env::var("USERNAME").unwrap();
-//   let password = env::var("PASSWORD").unwrap();
-//   let server_url = env::var("SERVER_URL").unwrap();
+async fn watch_bridges() -> Result<(),kube::Error>{
+  let config = Config::infer().await;
+  match config {
+      Err(e) => println!("error {}", e),
+      Ok(c) => {
+          let client: kube::Client = Client::new(c);
+          let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
+          let crds: Api<Bridge> = Api::namespaced(client, &namespace);
+          let lp = ListParams::default();
 
-//   let p = Command::new("tibemsadmin")
-//       .arg("-user")
-//       .arg(username)
-//       .arg("-password")
-//       .arg(password)
-//       .arg("-server")
-//       .arg(server_url)
-//       .arg("-module_path")
-//       .arg("/usr/lib64")
-//       .arg("-script")
-//       .arg("/tmp/ems.script")
-//       .spawn().unwrap();
-//   return p.wait_with_output();
-// }
+          println!("streaming events bridges ...");
+          let mut stream = crds.watch(&lp, "0").await?.boxed();
+          while let Some(status) = stream.try_next().await? {
+              match status {
+                  WatchEvent::Added(bridge) => {
+                    create_bridge(bridge);
+                  },
+                  WatchEvent::Modified(bridge) => {
+                    println!("modified bridge event not implemented: {}",bridge.metadata.name.unwrap());
+                  },
+                  WatchEvent::Deleted(bridge) => {
+                    delete_bridge(bridge);
+                  },
+                  WatchEvent::Error(bridge) => println!("error: {}", bridge),
+                  _ => {}
+              }
+          }
+      }
+    }
+  Ok(())
+}
 
-fn create_queue(queue: Queue){
-  let qname: String = queue.metadata.name.unwrap();
-  let script = "create queue ".to_owned()+&qname+"\n";
-  println!("script: {}",script);
-  //write to file
-  let mut file = File::create(&"/tmp/ems.script").unwrap();
+fn write_script_file(script: String) {
+  let mut file = File::create("/tmp/ems.script").unwrap();
   file.write_all(&script.into_bytes()).unwrap();
+}
 
+fn run_tibemsadmin() -> Child{
   let username = env::var("USERNAME").unwrap();
   let password = env::var("PASSWORD").unwrap();
   let server_url = env::var("SERVER_URL").unwrap();
@@ -154,7 +165,18 @@ fn create_queue(queue: Queue){
       .arg("-script")
       .arg("/tmp/ems.script")
       .spawn().unwrap();
-  println!("{:?}",p.wait_with_output());
+  return p;
+}
+
+fn create_queue(queue: Queue){
+  let mut qname: String = queue.metadata.name.unwrap();
+  qname.make_ascii_uppercase();
+  let script = "create queue ".to_owned()+&qname+"\n";
+  println!("script: {}",script);
+  write_script_file(script);
+  let child = run_tibemsadmin();
+
+  println!("{:?}",child.wait_with_output());
 }
 
 fn delete_queue(queue: Queue){
@@ -163,77 +185,32 @@ fn delete_queue(queue: Queue){
   println!("deleting queue {}", qname);
   let script = "delete queue ".to_owned()+&qname+"\n";
   println!("script: {}",script);
-  //write to file
-  let mut file = File::create(&"/tmp/ems.script").unwrap();
-  file.write_all(&script.into_bytes()).unwrap();
+  write_script_file(script);
+  let child = run_tibemsadmin();
 
-  let username = env::var("USERNAME").unwrap();
-  let password = env::var("PASSWORD").unwrap();
-  let server_url = env::var("SERVER_URL").unwrap();
-
-  let p = Command::new("tibemsadmin")
-      .arg("-user")
-      .arg(username)
-      .arg("-password")
-      .arg(password)
-      .arg("-server")
-      .arg(server_url)
-      .arg("-script")
-      .arg("/tmp/ems.script")
-      .spawn().unwrap();
-  println!("{:?}",p.wait_with_output());
+  println!("{:?}",child.wait_with_output());
 }
 
 fn create_topic(topic: Topic){
-  let qname: String = topic.metadata.name.unwrap();
-  let script = "create topic ".to_owned()+&qname;
+  let mut topic_name: String = topic.metadata.name.unwrap();
+  topic_name.make_ascii_uppercase();
+  let script = "create topic ".to_owned()+&topic_name;
   println!("script: {}",script);
-  //write to file
-  let mut file = File::create(&"/tmp/ems.script").unwrap();
-  file.write_all(&script.into_bytes()).unwrap();
+  write_script_file(script);
+  let child = run_tibemsadmin();
 
-  let username = env::var("USERNAME").unwrap();
-  let password = env::var("PASSWORD").unwrap();
-  let server_url = env::var("SERVER_URL").unwrap();
-
-  let p = Command::new("tibemsadmin")
-      .arg("-user")
-      .arg(username)
-      .arg("-password")
-      .arg(password)
-      .arg("-server")
-      .arg(server_url)
-      .arg("-script")
-      .arg("/tmp/ems.script")
-      .spawn().unwrap();
-  println!("{:?}",p.wait_with_output());
+  println!("{:?}",child.wait_with_output());
 }
 
 fn delete_topic(topic: Topic){
-  let mut qname: String = topic.metadata.name.unwrap();
-  qname.make_ascii_uppercase();
-  println!("deleting topic {}", qname);
-  let script = "delete topic ".to_owned()+&qname+&"\n";
+  let mut topic_name: String = topic.metadata.name.unwrap();
+  topic_name.make_ascii_uppercase();
+  let script = "delete topic ".to_owned()+&topic_name+&"\n";
   println!("script: {}",script);
-  //write to file
-  let mut file = File::create(&"/tmp/ems.script").unwrap();
-  file.write_all(&script.into_bytes()).unwrap();
+  write_script_file(script);
+  let child = run_tibemsadmin();
 
-  let username = env::var("USERNAME").unwrap();
-  let password = env::var("PASSWORD").unwrap();
-  let server_url = env::var("SERVER_URL").unwrap();
-
-  let p = Command::new("tibemsadmin")
-      .arg("-user")
-      .arg(username)
-      .arg("-password")
-      .arg(password)
-      .arg("-server")
-      .arg(server_url)
-      .arg("-script")
-      .arg("/tmp/ems.script")
-      .spawn().unwrap();
-  println!("{:?}",p.wait_with_output());
+  println!("{:?}",child.wait_with_output());
 }
 
 fn create_bridge(bridge: Bridge){
@@ -248,6 +225,7 @@ async fn main() -> Result<(), kube::Error>  {
     println!("starting tibco-ems-operator");
     let _ignore = task::spawn(watch_queues());
     let _ignore = task::spawn(watch_topics());
+    let _ignore = task::spawn(watch_bridges());
     std::thread::park();
     println!("done");
     Ok(())

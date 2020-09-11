@@ -16,6 +16,13 @@ spec:
       containers:
       - name: tibco-ems-operator
         image: gcr.io/apimeister/tibco-ems-operator
+        resources:
+          requests:
+            memory: "10Mi"
+            cpu: "10m"
+          limits:
+            memory: "20Mi"
+            cpu: "100m"
         env:
           - name: KUBERNETES_SERVICE_HOST
             value: kubernetes
@@ -26,15 +33,15 @@ spec:
           - name: SERVER_URL
             valueFrom:
               secretKeyRef:
-                name: esb
+                name: tibco-ems-operator-secret
                 key: serverUrl
           - name: USERNAME
             valueFrom:
               secretKeyRef:
-                name: esb
+                name: tibco-ems-operator-secret
                 key: username
           - name: PASSWORD
             valueFrom:
               secretKeyRef:
-                name: esb
+                name: tibco-ems-operator-secret
                 key: password
