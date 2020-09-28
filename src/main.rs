@@ -1,5 +1,6 @@
 extern crate serde_derive;
-use kube::{api::{Api, ListParams, WatchEvent}, Client};
+use kube::{api::{Api, ListParams}, Client};
+use kube_runtime::watcher;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
@@ -48,99 +49,96 @@ pub struct BridgeSpec {
     pub selector: Option<String>,
 }
 
-async fn watch_queues() -> Result<(),kube::Error>{
+async fn watch_queues() -> Result<(),kube_runtime::watcher::Error>{
     let config = Config::infer().await;
     match config {
         Err(e) => println!("error {}", e),
         Ok(c) => {
-            let client: kube::Client = Client::new(c);
-            let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
-            let crds: Api<Queue> = Api::namespaced(client, &namespace);
-            let lp = ListParams::default();
+          let client: kube::Client = Client::new(c);
+          let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
+          let crds: Api<Queue> = Api::namespaced(client, &namespace);
+          let lp = ListParams::default();
 
-            println!("subscribing events of type queues.tibcoems.apimeister.com/v1");
-            let mut stream = crds.watch(&lp, "0").await?.boxed();
-            while let Some(status) = stream.try_next().await? {
-                match status {
-                    WatchEvent::Added(queue) => {
-                      create_queue(queue);
-                    },
-                    WatchEvent::Modified(queue) => {
-                      println!("modified queue event not implemented: {}",queue.metadata.name.unwrap());
-                    },
-                    WatchEvent::Deleted(queue) => {
-                      delete_queue(queue);
-                    },
-                    WatchEvent::Error(queue) => println!("error: {}", queue),
-                    _ => {}
+          println!("subscribing events of type queues.tibcoems.apimeister.com/v1");
+          let mut stream = watcher(crds, lp).boxed();
+          while let Some(status) = stream.try_next().await? {
+              match status {
+                kube_runtime::watcher::Event::Applied(queue) =>{
+                  create_queue(queue);
                 }
-            }
+                kube_runtime::watcher::Event::Deleted(queue) =>{
+                  delete_queue(queue);
+                },
+                kube_runtime::watcher::Event::Restarted(_queue) =>{
+                  println!("restart queue event not implemented");
+                },
+              }
+          }
         }
       }
+    println!("finished watching queues");
     Ok(())
 }
 
-async fn watch_topics() -> Result<(),kube::Error>{
+async fn watch_topics() -> Result<(),kube_runtime::watcher::Error>{
   let config = Config::infer().await;
   match config {
       Err(e) => println!("error {}", e),
       Ok(c) => {
-          let client: kube::Client = Client::new(c);
-          let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
-          let crds: Api<Topic> = Api::namespaced(client, &namespace);
-          let lp = ListParams::default();
+        let client: kube::Client = Client::new(c);
+        let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
+        let crds: Api<Topic> = Api::namespaced(client, &namespace);
+        let lp = ListParams::default();
 
-          println!("subscribing events of type topics.tibcoems.apimeister.com/v1");
-          let mut stream = crds.watch(&lp, "0").await?.boxed();
-          while let Some(status) = stream.try_next().await? {
-              match status {
-                  WatchEvent::Added(topic) => {
-                    create_topic(topic);
-                  },
-                  WatchEvent::Modified(topic) => {
-                    println!("modified topic event not implemented: {}",topic.metadata.name.unwrap());
-                  },
-                  WatchEvent::Deleted(topic) => {
-                    delete_topic(topic);
-                  },
-                  WatchEvent::Error(topic) => println!("error: {}", topic),
-                  _ => {}
-              }
+        println!("subscribing events of type topics.tibcoems.apimeister.com/v1");
+        let mut stream = watcher(crds, lp).boxed();
+        while let Some(status) = stream.try_next().await? {
+          match status {
+            kube_runtime::watcher::Event::Applied(topic) =>{
+              create_topic(topic);
+            }
+            kube_runtime::watcher::Event::Deleted(topic) =>{
+              delete_topic(topic);
+            },
+            kube_runtime::watcher::Event::Restarted(_topic) =>{
+              println!("restart topic event not implemented");
+            },
           }
+        }
       }
     }
+  println!("finished watching topics");
   Ok(())
 }
 
-async fn watch_bridges() -> Result<(),kube::Error>{
+async fn watch_bridges() -> Result<(),kube_runtime::watcher::Error>{
   let config = Config::infer().await;
   match config {
       Err(e) => println!("error {}", e),
       Ok(c) => {
-          let client: kube::Client = Client::new(c);
-          let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
-          let crds: Api<Bridge> = Api::namespaced(client, &namespace);
-          let lp = ListParams::default();
+        let client: kube::Client = Client::new(c);
+        let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
+        let crds: Api<Bridge> = Api::namespaced(client, &namespace);
+        let lp = ListParams::default();
 
-          println!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
-          let mut stream = crds.watch(&lp, "0").await?.boxed();
-          while let Some(status) = stream.try_next().await? {
-              match status {
-                  WatchEvent::Added(bridge) => {
-                    create_bridge(bridge);
-                  },
-                  WatchEvent::Modified(bridge) => {
-                    println!("modified bridge event not implemented: {}",bridge.metadata.name.unwrap());
-                  },
-                  WatchEvent::Deleted(bridge) => {
-                    delete_bridge(bridge);
-                  },
-                  WatchEvent::Error(bridge) => println!("error: {}", bridge),
-                  _ => {}
-              }
+        println!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
+        let mut stream = watcher(crds, lp).boxed();
+        while let Some(status) = stream.try_next().await? {
+          match status {
+            kube_runtime::watcher::Event::Applied(bridge) =>{
+              create_bridge(bridge);
+            }
+            kube_runtime::watcher::Event::Deleted(bridge) =>{
+              delete_bridge(bridge);
+            },
+            kube_runtime::watcher::Event::Restarted(_bridge) =>{
+              println!("restart bridge event not implemented");
+            },
           }
+        }
       }
     }
+  println!("finished watching bridges");
   Ok(())
 }
 
