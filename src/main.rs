@@ -16,68 +16,70 @@ use tokio::task;
 #[kube(group = "tibcoems.apimeister.com", version = "v1", kind="Queue", namespaced)]
 #[allow(non_snake_case)]
 pub struct QueueSpec {
-    pub expiration: Option<u32>,
-    pub global: Option<bool>,
-    pub maxbytes: Option<u32>,
-    pub maxmsgs: Option<u32>,
-    pub maxRedelivery: Option<u32>,
-    pub overflowPolicy: Option<u8>,
-    pub prefetch: Option<u32>,
-    pub redeliveryDelay: Option<u32>,
+  pub name: Option<String>,
+  pub expiration: Option<u32>,
+  pub global: Option<bool>,
+  pub maxbytes: Option<u32>,
+  pub maxmsgs: Option<u32>,
+  pub maxRedelivery: Option<u32>,
+  pub overflowPolicy: Option<u8>,
+  pub prefetch: Option<u32>,
+  pub redeliveryDelay: Option<u32>,
 }
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", kind="Topic", namespaced)]
 #[allow(non_snake_case)]
 pub struct TopicSpec {
-    pub expiration: Option<u32>,
-    pub global: Option<bool>,
-    pub maxbytes: Option<u32>,
-    pub maxmsgs: Option<u32>,
-    pub overflowPolicy: Option<u8>,
-    pub prefetch: Option<u32>,
+  pub name: Option<String>,
+  pub expiration: Option<u32>,
+  pub global: Option<bool>,
+  pub maxbytes: Option<u32>,
+  pub maxmsgs: Option<u32>,
+  pub overflowPolicy: Option<u8>,
+  pub prefetch: Option<u32>,
 }
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", kind="Bridge", namespaced)]
 #[allow(non_snake_case)]
 pub struct BridgeSpec {
-    pub source_type: String,
-    pub source_name: String,
-    pub target_type: String,
-    pub target_name: String,
-    pub selector: Option<String>,
+  pub source_type: String,
+  pub source_name: String,
+  pub target_type: String,
+  pub target_name: String,
+  pub selector: Option<String>,
 }
 
 async fn watch_queues() -> Result<(),kube_runtime::watcher::Error>{
-    let config = Config::infer().await;
-    match config {
-        Err(e) => println!("error {}", e),
-        Ok(c) => {
-          let client: kube::Client = Client::new(c);
-          let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
-          let crds: Api<Queue> = Api::namespaced(client, &namespace);
-          let lp = ListParams::default();
+  let config = Config::infer().await;
+  match config {
+    Err(e) => println!("error {}", e),
+    Ok(c) => {
+      let client: kube::Client = Client::new(c);
+      let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
+      let crds: Api<Queue> = Api::namespaced(client, &namespace);
+      let lp = ListParams::default();
 
-          println!("subscribing events of type queues.tibcoems.apimeister.com/v1");
-          let mut stream = watcher(crds, lp).boxed();
-          while let Some(status) = stream.try_next().await? {
-              match status {
-                kube_runtime::watcher::Event::Applied(queue) =>{
-                  create_queue(queue);
-                }
-                kube_runtime::watcher::Event::Deleted(queue) =>{
-                  delete_queue(queue);
-                },
-                kube_runtime::watcher::Event::Restarted(_queue) =>{
-                  println!("restart queue event not implemented");
-                },
-              }
+      println!("subscribing events of type queues.tibcoems.apimeister.com/v1");
+      let mut stream = watcher(crds, lp).boxed();
+      while let Some(status) = stream.try_next().await? {
+        match status {
+          kube_runtime::watcher::Event::Applied(queue) =>{
+            create_queue(queue);
           }
+          kube_runtime::watcher::Event::Deleted(queue) =>{
+            delete_queue(queue);
+          },
+          kube_runtime::watcher::Event::Restarted(_queue) =>{
+            println!("restart queue event not implemented");
+          },
         }
       }
-    println!("finished watching queues");
-    Ok(())
+    }
+  }
+  println!("finished watching queues");
+  Ok(())
 }
 
 async fn watch_topics() -> Result<(),kube_runtime::watcher::Error>{
@@ -168,8 +170,16 @@ fn run_tibemsadmin() -> Child{
 }
 
 fn create_queue(queue: Queue){
-  let mut qname: String = queue.metadata.name.unwrap();
-  qname.make_ascii_uppercase();
+  let mut qname: String;
+  //check for name in spec
+  match queue.spec.name {
+    Some(q) => qname=q,
+    None =>{
+      qname = queue.metadata.name.unwrap();
+      qname.make_ascii_uppercase();
+    }
+  }
+
   let script = "create queue ".to_owned()+&qname+"\n";
   println!("script: {}",script);
   write_script_file(script);

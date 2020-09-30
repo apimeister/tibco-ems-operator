@@ -3,6 +3,7 @@ kind: Queue
 metadata:
   name: q.test.2
 spec:
+  name: q.test_whatever.2
   expiration: 12345
   global: true
   maxbytes: 12345

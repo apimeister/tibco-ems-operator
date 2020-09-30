@@ -1,0 +1,9 @@
+apiVersion: tibcoems.apimeister.com/v1
+kind: Bridge
+metadata:
+  name: t.test.1--q.test.1
+spec:
+  source_type: topic
+  source_name: t.test.1
+  target_type: queue
+  target_name: q.test.1
