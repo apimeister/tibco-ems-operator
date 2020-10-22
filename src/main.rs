@@ -1,123 +1,45 @@
 use tokio::task;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Result, Server, StatusCode};
+use hyper::header::CONTENT_TYPE;
+use prometheus::TextEncoder;
+use prometheus::Encoder;
+use prometheus::Registry;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
 
+pub mod ems;
 mod queue;
 mod topic;
 mod bridge;
 
+pub static PROMETHEUS_REGISTRY: Lazy<Mutex<Registry>> = Lazy::new(|| {
+  let r = Registry::new();
+  r.register(Box::new(queue::PENDING_MESSAGES.lock().unwrap().clone())).unwrap();
+  r.register(Box::new(queue::CONSUMERS.lock().unwrap().clone())).unwrap();
+  Mutex::new(r)
+});
+
 async fn respond(req: Request<Body>) -> Result<Response<Body>> {
-  let uri = format!("{}",req.uri().path());
-  let uri_parts: Vec<&str> = uri.split('/').collect();
-  let mut uri_prefix: String = uri.to_owned();
-  if uri_parts.len() ==4 {
-    uri_prefix = format!("/{}/{}/{}/",uri_parts[1],uri_parts[2],uri_parts[3]);
+  println!("{} {}",req.method(),req.uri());
+  let encoder = TextEncoder::new();
+  let metric_families;
+  {
+    let r = PROMETHEUS_REGISTRY.lock().unwrap();
+    println!("gather metrics");
+    metric_families = r.gather();
   }
-  if uri_parts.len() >4 {
-    uri_prefix = format!("/{}/{}/{}/{}/",uri_parts[1],uri_parts[2],uri_parts[3],uri_parts[4]);
-  }
-  match uri_prefix.as_str() {
-    "/apis/custom.metrics.k8s.io/v1beta1/" => {
-      let json_response = r#"[
-        { "GroupResource":
-          {
-            "Group": "tibcoems.apimeister.com",
-            "Resource": "Queue"
-          }, 
-          "Metric": "pendingMessages",
-          "Namespaced": true
-        }, {
-          "GroupResource":
-          {
-            "Group": "tibcoems.apimeister.com",
-            "Resource": "Queue"
-          },
-          "Metric": "consumerCount",
-          "Namespaced":true
-        }, {
-          "GroupResource":
-          {
-            "Group": "tibcoems.apimeister.com",
-            "Resource": "Topic"
-          },
-          "Metric": "pendingMessages",
-          "Namespaced": true
-        }, {
-          "GroupResource":
-          {
-            "Group": "tibcoems.apimeister.com",
-            "Resource": "Topic"
-          },
-          "Metric": "consumerCount",
-          "Namespaced":true
-        }
-      ]"#;
-      Ok(Response::builder()
+  let mut buffer = Vec::<u8>::new();
+  println!("encode response");
+  encoder.encode(&metric_families, &mut buffer).unwrap();
+  let str = String::from_utf8(buffer.clone()).unwrap();
+  println!("{}",str);
+  let response = Response::builder()
       .status(StatusCode::OK)
-      .body(Body::from(json_response))
-      .unwrap())
-    },
-    "/apis/custom.metrics.k8s.io/v1beta1/namespaces/" => {
-      //apis/custom.metrics.k8s.io/v1beta1/namespaces/default/queues.tibcoems.apimeister.com/q.test.2/pendingMessages
-      let _namespace = uri_parts[5];
-      let group = uri_parts[6];
-      let destination = uri_parts[7];
-      let metric = uri_parts[8];
-      println!("group: {}, destination: {}, metric: {}",group,destination,metric);
-      let now: chrono::DateTime<chrono::Utc> = chrono::Utc::now();
-      let ts: String = now.to_rfc3339().into();
-      let mut value: i64 = 0;
-      {
-        let res = queue::KNOWN_QUEUES.lock().unwrap();
-        match res.get(destination) {
-          Some(queue) =>{
-            value = queue.status.clone().unwrap().pendingMessages;
-          }
-          None => {},
-        };
-      }
-      let result = json::object!{
-        "kind": "MetricValueList",
-        "apiVersion": "custom.metrics.k8s.io/v1beta1",
-        "metadata": {
-          "selfLink": json::from(uri.to_owned())
-        },
-        "items": [
-          {
-            "describedObject": {
-              "kind": "Queue",
-              "namespace": "default",
-              "name": json::from(destination.to_owned()),
-              "apiVersion": "tibcoems.apimeister.com/v1"
-            },
-            "metricName": "pendingMessages",
-            "timestamp": json::from(ts.to_owned()),
-            "value": json::from(value),
-            "selector": null
-          }
-        ]
-      };
-      let result_string = result.dump();
-      Ok(Response::builder()
-        .status(StatusCode::OK)
-        .body(Body::from(result_string))
-        .unwrap())
-    },
-    "/openapi/v2" => {
-      Ok(Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .body(Body::from("Not Found"))
-        .unwrap())
-    }
-    _ => {
-      println!("{}: {}",&req.method(),req.uri());
-      println!("prefix {}",uri_prefix);
-      Ok(Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .body(Body::from("Not Found"))
-        .unwrap())
-    }
-  }
+      .header(CONTENT_TYPE, encoder.format_type())
+      .body(Body::from(str))
+      .unwrap();
+  Ok(response)
 }
 
 #[tokio::main]
@@ -133,7 +55,7 @@ async fn main() -> Result<()>  {
     let _ignore = task::spawn(topic::watch_topics_status());
 
     //spawn metrics server
-    let addr = "0.0.0.0:6443".parse().unwrap();
+    let addr = "0.0.0.0:8080".parse().unwrap();
     let make_service = make_service_fn(|_|
        async { Ok::<_, hyper::Error>(service_fn(respond)) });
     let server = Server::bind(&addr).serve(make_service);

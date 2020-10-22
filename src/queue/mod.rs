@@ -6,14 +6,14 @@ use kube_derive::CustomResource;
 use kube::config::Config;
 use std::env;
 use tokio::time::{self, Duration};
-use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
+use prometheus::GaugeVec;
+use prometheus::Opts;
 
-#[path = "../ems/mod.rs"]
-mod ems;
+use crate::ems;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", 
@@ -42,63 +42,78 @@ pub struct QueueStatus {
 
 pub static KNOWN_QUEUES: Lazy<Mutex<HashMap<String, Queue>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 
-pub async fn watch_queues() -> Result<()>{
-  let crds: Api<Queue> = get_queue_client().await;
-  let updater: Api<Queue> = crds.clone();
+pub static PENDING_MESSAGES: Lazy<Mutex<GaugeVec>> = Lazy::new(|| 
+  Mutex::new(GaugeVec::new(Opts::new("pending_messages", "pending messages"),&["name", "instance"]).unwrap()) );
+pub static CONSUMERS: Lazy<Mutex<GaugeVec>> = Lazy::new(|| 
+  Mutex::new(GaugeVec::new(Opts::new("consumers", "consumers"),&["queue", "instance"]).unwrap()) );
   
-  let lp = ListParams::default();
+pub async fn watch_queues() -> Result<()>{
+  
   println!("subscribing events of type queues.tibcoems.apimeister.com/v1");
-  let mut stream = watcher(crds, lp).boxed();
-  while let Some(status) = stream.try_next().await.unwrap() {
-    match status {
-      kube_runtime::watcher::Event::Applied(mut queue) =>{
-        let qname = get_queue_name(&queue);
-        let name = Meta::name(&queue);
-        {
-          let mut res = KNOWN_QUEUES.lock().unwrap();
-          match res.get(&qname) {
-            Some(_queue) => println!("queue already known {}", &qname),
-            None => {
-              println!("adding queue {}", &qname);
-              create_queue(&mut queue);
-              let q = (&queue).clone();
-              let n = (&qname).clone();
-              res.insert(n, q);
+  loop{
+    let crds: Api<Queue> = get_queue_client().await;
+    let updater: Api<Queue> = crds.clone();  
+    let lp = ListParams::default();
+    let mut stream = watcher(crds, lp).boxed();
+    loop {
+      let entity = stream.try_next().await;
+      match entity {
+        Ok(status)=> {
+          match status.unwrap() {
+            kube_runtime::watcher::Event::Applied(mut queue) =>{
+              let qname = get_queue_name(&queue);
+              let name = Meta::name(&queue);
+              {
+                let mut res = KNOWN_QUEUES.lock().unwrap();
+                match res.get(&qname) {
+                  Some(_queue) => println!("queue already known {}", &qname),
+                  None => {
+                    println!("adding queue {}", &qname);
+                    create_queue(&mut queue);
+                    let q = (&queue).clone();
+                    let n = (&qname).clone();
+                    res.insert(n, q);
+                  },
+                }
+              }
+              match queue.status {
+                None =>{
+                  let q_json = serde_json::to_string(&queue).unwrap();
+                  let pp = PostParams::default();
+                  let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+                },
+                _ => {},
+              };
+            }
+            kube_runtime::watcher::Event::Deleted(queue) =>{
+              delete_queue(queue.clone());
+              let mut res = KNOWN_QUEUES.lock().unwrap();
+              let qname = get_queue_name(&queue);
+              res.remove(&qname);           
+            },
+            kube_runtime::watcher::Event::Restarted(queues) =>{
+              let mut res = KNOWN_QUEUES.lock().unwrap();
+              for (idx, queue) in queues.iter().enumerate() {
+                let queue_name = get_queue_name(queue);
+                let obj_name = get_obj_name_from_queue(queue);
+                if queue_name != obj_name {
+                  println!("{}: adding queue to monitor {}",idx+1,queue_name);
+                }else{
+                  println!("{}: adding queue to monitor {} ({})",idx+1,queue_name,obj_name);
+                }
+                res.insert(queue_name.to_owned(), queue.clone()); 
+              }
             },
           }
-        }
-        match queue.status {
-          None =>{
-            let q_json = serde_json::to_string(&queue).unwrap();
-            let pp = PostParams::default();
-            let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-          },
-          _ => {},
-        };
+        },
+        Err(err) => {
+          eprintln!("error while watching queue changes");
+          eprintln!("{:?}",err);
+          break;
+        },
       }
-      kube_runtime::watcher::Event::Deleted(queue) =>{
-        delete_queue(queue.clone());
-        let mut res = KNOWN_QUEUES.lock().unwrap();
-        let qname = get_queue_name(&queue);
-        res.remove(&qname);           
-      },
-      kube_runtime::watcher::Event::Restarted(queues) =>{
-        let mut res = KNOWN_QUEUES.lock().unwrap();
-        for (idx, queue) in queues.iter().enumerate() {
-          let queue_name = get_queue_name(queue);
-          let obj_name = get_obj_name_from_queue(queue);
-          if queue_name != obj_name {
-            println!("{}: adding queue to monitor {}",idx+1,queue_name);
-          }else{
-            println!("{}: adding queue to monitor {} ({})",idx+1,queue_name,obj_name);
-          }
-          res.insert(queue_name.to_owned(), queue.clone()); 
-        }
-      },
     }
   }
-  println!("finished watching queues");
-  Ok(())
 }
 
 pub async fn watch_queues_status() -> Result<()>{
@@ -109,65 +124,66 @@ pub async fn watch_queues_status() -> Result<()>{
     Err(_error) => {},
   }
   let mut interval = time::interval(Duration::from_millis(interval));
-  let re = Regex::new(r"[\*]?\s*(?P<name>[\$\.\S]*)\s*(?P<flags>.[+-]*)\s*(?P<prefetch>[\d\*]*)\s*(?P<consumers>[\d]*)\s*(?P<pendingMsgs>[\d]*)\s*(?P<pendingBytes>[\d\.]*)\s.*").unwrap();
   loop {
-    let result = ems::run_tibems_script("show queues".to_owned());
-    let lines: Vec<&str> = result.split("\n").collect();
-    for (index, line) in lines.iter().enumerate() {
-      //skip first 10 lines
-      if index> 10 {
-        let values = re.captures(line);
-        match values {
-          Some(vec) =>{
-            let qname = &vec["name"];
-            let mut q : Option<Queue> = None;
-            {
-              let mut res = KNOWN_QUEUES.lock().unwrap();
-              match res.get(qname) {
-                Some(queue) =>{
-                  let mut local_q = queue.clone();
-                  // let local_q = 
-                  let pending_msgs: i64 = *&vec["pendingMsgs"].to_owned().parse().unwrap();
-                  let consumers: i32 = *&vec["consumers"].to_owned().parse().unwrap();
-                  match &queue.status {
-                    Some(status) => {
-                      if status.pendingMessages != pending_msgs 
-                        || status.consumerCount != consumers {
-                        local_q.status = Some(QueueStatus{
-                            pendingMessages: pending_msgs,
-                            consumerCount: consumers});
-                        q = Some(local_q.clone());  
-                        res.insert(qname.to_owned(),local_q);
-                      }
-                    },
-                    None => {
-                      local_q.status = Some(QueueStatus{
-                        pendingMessages: pending_msgs,
-                        consumerCount: consumers});
-                      q = Some(local_q.clone());  
-                      res.insert(qname.to_owned(),local_q);
-                    },
-                  }
-                },
-                None => {},
-              }
-            }
-            match q {
-              Some(mut local_q) => {
-                println!("setting queue status ");
-                let obj_name = get_obj_name_from_queue(&local_q);
-                let updater: Api<Queue> = get_queue_client().await;
-                let latest_queue: Queue = updater.get(&obj_name).await.unwrap();
-                local_q.metadata.resource_version=Meta::resource_ver(&latest_queue);
-                let q_json = serde_json::to_string(&local_q).unwrap();
-                let pp = PostParams::default();
-                let _result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
+    let result = ems::get_queue_stats();
+    for qinfo in &result {
+      //update prometheus
+      {
+        // println!("adding metrics for {}: {} {}",qinfo.queue_name,qinfo.pending_messages,qinfo.consumers);
+        let c_vec = CONSUMERS.lock().unwrap();
+        c_vec.with_label_values(&[&qinfo.queue_name, "EMS-ESB"]).set(qinfo.consumers as f64);
+        let m_vec = PENDING_MESSAGES.lock().unwrap();
+        m_vec.with_label_values(&[&qinfo.queue_name, "EMS-ESB"]).set(qinfo.pending_messages as f64);
+      }
+      //update k8s state
+      let mut q : Option<Queue> = None;
+      {
+        let mut res = KNOWN_QUEUES.lock().unwrap();
+        match res.get(&qinfo.queue_name) {
+          Some(queue) =>{
+            let mut local_q = queue.clone();
+            match &queue.status {
+              Some(status) => {
+                if status.pendingMessages != qinfo.pending_messages as i64
+                  || status.consumerCount != qinfo.consumers as i32 {
+                  local_q.status = Some(QueueStatus{
+                      pendingMessages: qinfo.pending_messages,
+                      consumerCount: qinfo.consumers as i32});
+                  q = Some(local_q.clone());  
+                  res.insert(qinfo.queue_name.to_owned(),local_q);
+                }
               },
-              None => {},
+              None => {
+                local_q.status = Some(QueueStatus{
+                  pendingMessages: qinfo.pending_messages,
+                  consumerCount: qinfo.consumers as i32});
+                q = Some(local_q.clone());  
+                res.insert(qinfo.queue_name.to_owned(),local_q);
+              },
             }
           },
           None => {},
         }
+      }
+      match q {
+        Some(mut local_q) => {
+          let obj_name = get_obj_name_from_queue(&local_q);
+          println!("updating queue status for {}",obj_name);
+          let updater: Api<Queue> = get_queue_client().await;
+          let latest_queue: Queue = updater.get(&obj_name).await.unwrap();
+          local_q.metadata.resource_version=Meta::resource_ver(&latest_queue);
+          let q_json = serde_json::to_string(&local_q).unwrap();
+          let pp = PostParams::default();
+          let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
+          match result {
+            Ok(_ignore) => {},
+            Err(err) => {
+              eprintln!("error while updating queue object");
+              eprintln!("{:?}",err);
+            },
+          }
+        },
+        None => {},
       }
     }
     interval.tick().await;

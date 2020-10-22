@@ -17,22 +17,21 @@ spec:
       serviceAccountName: tibco-ems-operator-account
       containers:
       - name: tibco-ems-operator
-        image: gcr.io/apimeister/tibco-ems-operator
+        image: gcr.io/apimeister/tibco-ems-operator:dev
         resources:
           requests:
-            memory: "10Mi"
-            cpu: "10m"
-          limits:
             memory: "20Mi"
-            cpu: "100m"
+            cpu: "50m"
+          limits:
+            memory: "50Mi"
+            cpu: "1000m"
         ports:
-          - containerPort: 6443
-          - containerPort: 443
+          - containerPort: 8080
         env:
           - name: KUBERNETES_SERVICE_HOST
             value: kubernetes.default.svc.cluster.local
           - name: STATUS_REFRESH_IN_MS
-            value: "1000"
+            value: "10000"
           - name: KUBERNETES_NAMESPACE
             valueFrom:
               fieldRef:
@@ -52,97 +51,3 @@ spec:
               secretKeyRef:
                 name: tibco-ems-operator-secret
                 key: password
-      - name: nginx
-        image: nginx
-        volumeMounts:
-          - name: config-volume
-            mountPath: /etc/nginx/nginx.conf
-            subPath: nginx.conf        
-          - name: config-volume
-            mountPath: /etc/nginx/private.key 
-            subPath: private.key        
-          - name: config-volume
-            mountPath: /etc/nginx/public.crt 
-            subPath: public.crt        
-      volumes:
-      - name: config-volume
-        configMap:
-          name: tibco-ems-metrics-config
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: tibco-ems-metrics-config
-data:
-  nginx.conf: |
-    worker_processes  1;
-    events {
-        worker_connections  1024;
-    }
-    http {
-      access_log  off;
-      include       mime.types;
-      default_type  application/octet-stream;
-      sendfile        on;
-      keepalive_timeout  65;
-      server {
-        listen       443 ssl;
-        server_name  localhost;
-        ssl_certificate      /etc/nginx/public.crt;
-        ssl_certificate_key  /etc/nginx/private.key;
-        # ssl_protocols TLSv1.2;
-        # ssl_ciphers EECDH+AES128:RSA+AES128:EECDH+AES256:RSA+AES256:!EECDH+3DES:!RSA+3DES:!MD5;
-        # ssl_prefer_server_ciphers on;
-        location / {
-          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-          proxy_set_header Host $http_host;
-          proxy_pass http://127.0.0.1:6443/;
-        }
-      }
-    }
-  private.key: |
-    -----BEGIN RSA PRIVATE KEY-----
-    MIIEogIBAAKCAQEAtBVmuC8gXVwztUHYTQ4xLA+yp8KWvNiKvvJzs8bD8Hi1Tivf
-    apgxJwzT421kz1r5yRnW7DTqr/IzmJBc8odOZkvmk2Ja+2F3J16IdazYzi3wsL9C
-    8VN4qG2FWQS+P/AVH9QykQleVRXP4EMk3PZMojPPLvnyNbIjBAs+ONcJ7F0NAO5o
-    ezC/lrPx6QoWoyjOBNsKzDvQbpG0QXjuAkMZk3u/EjZMVsrNrS1akMqa5q0SDnJr
-    fp8fdULuwb4tHEZP/f2zASGuIiUZT8+FIHB3hru4vgdmaqs9Jtz5BOqqjc9Lsa7d
-    au0L9t+kvMkRbXGYTlMeClYsqXxob2tBjHqM/QIDAQABAoIBACiMrR2KFwqOqWIG
-    GpN3P6FBQ6Q8z75kMBHA/Ead2h76vzCD9oHFFURKwidyyYFbZeVfeSKk47eMnQuc
-    biF6UC/+pUPIoN372121DpsYuZTriUfzOTqn5gJe7ujVhZVWFRuep2g7KM+V4sIH
-    vHQ4zZa0fdGBHIX0v6e4dGFOIoDjLjeDOaQG1cH9S+6xRy8TYil2u6V+HT6Yvrp1
-    5Wdw8saNHnunc3aEPoJkn62yKlDEjgi4lgQl7u6rkS7njSiUgipM5qBnyG8lI2TM
-    7J8oSyUJcq8AnTJ6nNqomhVapH7VAC0MpylaYAF7N2ulWCcUPCijlLRhU5r86DXN
-    HhrRnMECgYEA3wlMdnGv107fId7hrvX4dVeDQ+Zs7oTMVkRtY2GSJ27bJej1QO/L
-    T4SakCdCe8XtqwNDQvlxQ7XnMrZixtz6e/uRzomN103wpQoOMasuAcWgi0RGCNqA
-    j0uGHigRAGxZ2jrysUjwcxGcuaL+YasIYsJ7g3jzu6y2SDdrQ39e/+0CgYEAzrL2
-    dfZGJ4iJitcDXqq7pPC0sHaULrL4QniwS4LLhM8oNGRtoEfmD4VqfaAycOxpcrbC
-    cd70UI5yTnNlUjnJEMySs1VGJEDBwlsEl9Lr2uK7qoKQE8OxU4FZTjDjI5dPeA4Y
-    wN8wUmWhablXtaIIj54hlfQ/n/ExsgxvKHepf1ECgYApsVhMz+W6DvFhKIPxq+Nd
-    NBXCrKFyWPrFqZb1O/kRTATFam3mTK0p2TT3e49PCenqzPpW28BTkv58GWIPoKFm
-    admQzV/pfpVclKugl0pLZIElZ4bcAtSDdO/GVWEQPjDxvZE+mM7yA7nTbee1pD42
-    D/r80bBmRdvxVgLEJFxC5QKBgD9vWwYu0670T0nl3OnjufzPxpRVf/qpAFneEjTK
-    ak1TCkKyA5bqGefviRQO4wwW8fG7twcdZpuGa/w5nAHVLCjUr70L0Z/0o8JTDqDN
-    oYamiPO2aCM4rqYzD0ZY6IyWtlPg96XRmVHgUN5SfGGI3dm9rQ8JS7F5Y0gCWubv
-    enxRAoGAYEA8Afm96EOfiXUeGkufa2Jpi4d3WBNMcM20hcxfpNqZzDIPWmogcYod
-    B0TobFLleHWTLhgQjtLjwi/zb5o+xYbzdsk3xPUFYGoQFr0w2ySILOIaLXpSpb6D
-    GFe3tt4Dw4jTajoqmKRbvoy7kIIkcD5duEJefHHBfSS70t/kpoM=
-    -----END RSA PRIVATE KEY-----
-  public.crt: |
-    -----BEGIN CERTIFICATE-----
-    MIICpjCCAY4CCQDB2fpqYeiqyzANBgkqhkiG9w0BAQUFADAUMRIwEAYDVQQDDAls
-    b2NhbGhvc3QwIBcNMjAxMDE4MTI0MzA1WhgPMjEyMDA5MjQxMjQzMDVaMBQxEjAQ
-    BgNVBAMMCWxvY2FsaG9zdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
-    ALQVZrgvIF1cM7VB2E0OMSwPsqfClrzYir7yc7PGw/B4tU4r32qYMScM0+NtZM9a
-    +ckZ1uw06q/yM5iQXPKHTmZL5pNiWvthdydeiHWs2M4t8LC/QvFTeKhthVkEvj/w
-    FR/UMpEJXlUVz+BDJNz2TKIzzy758jWyIwQLPjjXCexdDQDuaHswv5az8ekKFqMo
-    zgTbCsw70G6RtEF47gJDGZN7vxI2TFbKza0tWpDKmuatEg5ya36fH3VC7sG+LRxG
-    T/39swEhriIlGU/PhSBwd4a7uL4HZmqrPSbc+QTqqo3PS7Gu3WrtC/bfpLzJEW1x
-    mE5THgpWLKl8aG9rQYx6jP0CAwEAATANBgkqhkiG9w0BAQUFAAOCAQEAlk7MReVG
-    /zV9hzJJFl6HGh80nypAQBXUsObxCW6BNvmvNO08M1gVMkdHseZyNyGDH63dF/lF
-    pQ+1X0QfHsD+LJlhtnrerY1N2ZBdKqCNasgfxE34uTA7mvu6i3R8dRGPeAOmYOit
-    mqDLs9HTJjjaYgzG10Aq6eWfdKEzCL0f2Mezd0TQecti4xIMwHlzcBlIHYonQ8Mx
-    QVshKTue4N/5VuFCMhD2aTTs+TBV4TPd1Zkyan2EWHbPaQemxwBfVU2apEuxiUZk
-    yNxGFNglHaKX3bcumXps5YGiBBcKlSqYPRI2MGhY+mqcGgTbsdIGIEhVwxU13LsZ
-    WWn25VxKH5NrFg==
-    -----END CERTIFICATE-----

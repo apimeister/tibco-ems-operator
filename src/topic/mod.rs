@@ -12,8 +12,7 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
 
-#[path = "../ems/mod.rs"]
-mod ems;
+use crate::ems;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", 
@@ -48,49 +47,57 @@ pub async fn watch_topics() -> Result<()>{
   let lp = ListParams::default();
   println!("subscribing events of type topics.tibcoems.apimeister.com/v1");
   let mut stream = watcher(crds, lp).boxed();
-  while let Some(status) = stream.try_next().await.unwrap() {
-    match status {
-      kube_runtime::watcher::Event::Applied(mut topic) =>{
-        let topic_name = get_topic_name(&topic);
-        let name = Meta::name(&topic);
-        {
-          let mut res = KNOWN_TOPICS.lock().unwrap();
-          match res.get(&topic_name) {
-            Some(_queue) => println!("queue already known {}", &topic_name),
-            None => {
-              println!("adding queue {}", &topic_name);
-              create_topic(&mut topic);
-              let q = (&topic).clone();
-              let n = (&topic_name).clone();
-              res.insert(n, q);
-            },
+  loop {
+    let entity = stream.try_next().await;
+    match entity {
+      Ok(status)=> {
+        match status.unwrap() {
+          kube_runtime::watcher::Event::Applied(mut topic) =>{
+            let topic_name = get_topic_name(&topic);
+            let name = Meta::name(&topic);
+            {
+              let mut res = KNOWN_TOPICS.lock().unwrap();
+              match res.get(&topic_name) {
+                Some(_queue) => println!("topic already known {}", &topic_name),
+                None => {
+                  println!("adding topic {}", &topic_name);
+                  create_topic(&mut topic);
+                  let q = (&topic).clone();
+                  let n = (&topic_name).clone();
+                  res.insert(n, q);
+                },
+              }
+            }
+            match topic.status {
+              None =>{
+                let q_json = serde_json::to_string(&topic).unwrap();
+                let pp = PostParams::default();
+                let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+              },
+              _ => {},
+            };
           }
-        }
-        match topic.status {
-          None =>{
-            let q_json = serde_json::to_string(&topic).unwrap();
-            let pp = PostParams::default();
-            let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+          kube_runtime::watcher::Event::Deleted(topic) =>{
+            delete_topic(topic);
           },
-          _ => {},
-        };
-      }
-      kube_runtime::watcher::Event::Deleted(topic) =>{
-        delete_topic(topic);
-      },
-      kube_runtime::watcher::Event::Restarted(topics) =>{
-        let mut res = KNOWN_TOPICS.lock().unwrap();
-        for (idx, topic) in topics.iter().enumerate() {
-          let topic_name = get_topic_name(topic);
-          println!("{}: adding topic to monitor {}",idx+1,topic_name);
-          res.insert(topic_name.to_owned(), topic.clone());
+          kube_runtime::watcher::Event::Restarted(topics) =>{
+            let mut res = KNOWN_TOPICS.lock().unwrap();
+            for (idx, topic) in topics.iter().enumerate() {
+              let topic_name = get_topic_name(topic);
+              println!("{}: adding topic to monitor {}",idx+1,topic_name);
+              res.insert(topic_name.to_owned(), topic.clone());
+            }
+          },
         }
+      },
+      Err(err) => {
+        eprintln!("error while watching topic changes");
+        eprintln!("{:?}",err);
       },
     }
   }
-  println!("finished watching topics");
-  Ok(())
 }
+
 pub async fn watch_topics_status() -> Result<()>{
   let status_refresh_in_ms = env::var("STATUS_REFRESH_IN_MS");
   let mut interval: u64  = 10000;
@@ -147,14 +154,21 @@ pub async fn watch_topics_status() -> Result<()>{
             }
             match t {
               Some(mut local_topic) => {
-                println!("setting topic status ");
                 let obj_name = get_obj_name_from_topic(&local_topic);
+                println!("updating topic status for {}",obj_name);
                 let updater: Api<Topic> = get_topic_client().await;
                 let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
                 local_topic.metadata.resource_version=Meta::resource_ver(&latest_topic);
                 let q_json = serde_json::to_string(&local_topic).unwrap();
                 let pp = PostParams::default();
-                let _result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
+                let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
+                match result {
+                  Ok(_ignore) => {},
+                  Err(err) => {
+                    eprintln!("error while updating topic object");
+                    eprintln!("{:?}",err);
+                  },
+                }
               },
               None => {},
             }

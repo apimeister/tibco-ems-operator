@@ -10,8 +10,8 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
 
-#[path = "../ems/mod.rs"]
-mod ems;
+use crate::ems;
+
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", kind="Bridge", namespaced)]
 #[allow(non_snake_case)]
