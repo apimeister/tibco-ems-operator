@@ -81,14 +81,12 @@ pub fn get_queue_stats() -> Vec<QueueInfo> {
       consumers: consumers
     };
     result.push(destination);
-    println!("{}: pending_message: {} consumers: {}",dest_name,pending,consumers);
 
     //loop other entries
     while response != tibems_status::TIBEMS_NOT_FOUND {
       let response = tibemsCollection_GetNext(dest_collection, col_ptr);
       if response != tibems_status::TIBEMS_OK {
         if response == tibems_status::TIBEMS_NOT_FOUND {
-          println!("breaking");
           break;
         }
         println!("tibemsCollection_GetNext {:?}",response);
