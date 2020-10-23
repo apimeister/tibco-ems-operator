@@ -17,9 +17,6 @@ spec:
             spec:
               type: object
               properties:
-                expiration:
-                  type: integer
-                  format: int32
                 name:
                   type: string
                 global:
