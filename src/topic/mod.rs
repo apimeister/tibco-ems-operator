@@ -6,7 +6,6 @@ use kube_derive::CustomResource;
 use kube::config::Config;
 use std::env;
 use tokio::time::{self, Duration};
-use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
@@ -39,6 +38,9 @@ pub struct TopicStatus {
 }
 
 pub static KNOWN_TOPICS: Lazy<Mutex<HashMap<String, Topic>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
+
+pub static TOPICS: Lazy<Mutex<HashMap<String,ems::TopicInfo>>> = Lazy::new(|| 
+  Mutex::new(HashMap::new() ) );
 
 pub async fn watch_topics() -> Result<()>{
   let crds: Api<Topic> = get_topic_client().await;
@@ -106,75 +108,66 @@ pub async fn watch_topics_status() -> Result<()>{
     Err(_error) => {},
   }
   let mut interval = time::interval(Duration::from_millis(interval));
-  let re = Regex::new(r"[\*]?\s*(?P<name>[\$\.\S]*)\s*(?P<flags>.[+-]*)\s*(?P<subscribers>[\d\*]*)\s*(?P<durables>[\d]*)\s*(?P<pendingMsgs>[\d]*)\s*(?P<pendingBytes>[\d\.]*)\s.*").unwrap();
   loop {
-    let result = ems::run_tibems_script("show topics".to_owned());
-    let lines: Vec<&str> = result.split("\n").collect();
-    for (index, line) in lines.iter().enumerate() {
-      //skip first 10 lines
-      if index> 10 {
-        let values = re.captures(line);
-        match values {
-          Some(vec) =>{
-            let tname = &vec["name"];
-            let mut t : Option<Topic> = None;
-            {
-              let mut res = KNOWN_TOPICS.lock().unwrap();
-              match res.get(tname) {
-                Some(topic) =>{
-                  let mut local_topic = topic.clone();
-                  let pending_msgs: i64 = *&vec["pendingMsgs"].to_owned().parse().unwrap();
-                  let subscribers: i32 = *&vec["subscribers"].to_owned().parse().unwrap();
-                  let durables: i32 = *&vec["durables"].to_owned().parse().unwrap();
-                  match &topic.status {
-                    Some(status) => {
-                      if status.pendingMessages != pending_msgs 
-                        || status.subscribers != subscribers
-                        || status.durables != durables {
-                        local_topic.status = Some(TopicStatus{
-                            pendingMessages: pending_msgs,
-                            subscribers: subscribers,
-                            durables: durables});
-                        t = Some(local_topic.clone());  
-                        res.insert(tname.to_owned(),local_topic);
-                      }
-                    },
-                    None => {
-                      local_topic.status = Some(TopicStatus{
-                        pendingMessages: pending_msgs,
-                        subscribers: subscribers,
-                        durables: durables});
-                      t = Some(local_topic.clone());  
-                      res.insert(tname.to_owned(),local_topic);
-                    },
-                  }
-                },
-                None => {},
-              }
-            }
-            match t {
-              Some(mut local_topic) => {
-                let obj_name = get_obj_name_from_topic(&local_topic);
-                println!("updating topic status for {}",obj_name);
-                let updater: Api<Topic> = get_topic_client().await;
-                let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
-                local_topic.metadata.resource_version=Meta::resource_ver(&latest_topic);
-                let q_json = serde_json::to_string(&local_topic).unwrap();
-                let pp = PostParams::default();
-                let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
-                match result {
-                  Ok(_ignore) => {},
-                  Err(err) => {
-                    eprintln!("error while updating topic object");
-                    eprintln!("{:?}",err);
-                  },
+    let result = ems::get_topic_stats();
+    for tinfo in &result {
+      //update prometheus
+      {
+        let mut c_map = TOPICS.lock().unwrap();
+        c_map.insert(tinfo.topic_name.clone(),tinfo.clone());
+      }
+      //update k8s state
+      let mut t : Option<Topic> = None;
+      {
+        let mut res = KNOWN_TOPICS.lock().unwrap();
+        match res.get(&tinfo.topic_name) {
+          Some(topic) =>{
+            let mut local_t = topic.clone();
+            match &topic.status {
+              Some(status) => {
+                if status.pendingMessages != tinfo.pending_messages
+                  || status.subscribers != tinfo.subscribers
+                  || status.durables != tinfo.durables {
+                  local_t.status = Some(TopicStatus{
+                      pendingMessages: tinfo.pending_messages,
+                      subscribers: tinfo.subscribers,
+                      durables: tinfo.durables });
+                  t = Some(local_t.clone());  
+                  res.insert(tinfo.topic_name.to_owned(),local_t);
                 }
               },
-              None => {},
+              None => {
+                local_t.status = Some(TopicStatus{
+                  pendingMessages: tinfo.pending_messages,
+                  subscribers: tinfo.subscribers,
+                  durables: tinfo.durables});
+                t = Some(local_t.clone());  
+                res.insert(tinfo.topic_name.to_owned(),local_t);
+              },
             }
           },
           None => {},
         }
+      }
+      match t {
+        Some(mut local_topic) => {
+          let obj_name = get_obj_name_from_topic(&local_topic);
+          println!("updating topic status for {}",obj_name);
+          let updater: Api<Topic> = get_topic_client().await;
+          let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
+          local_topic.metadata.resource_version=Meta::resource_ver(&latest_topic);
+          let q_json = serde_json::to_string(&local_topic).unwrap();
+          let pp = PostParams::default();
+          let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
+          match result {
+            Ok(_ignore) => {},
+            Err(err) => {
+              eprintln!("error while updating topic object");
+              eprintln!("{:?}",err);
+            },
+          }
+        },
+        None => {},
       }
     }
     interval.tick().await;

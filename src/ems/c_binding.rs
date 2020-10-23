@@ -18,6 +18,7 @@ extern "C" {
   pub fn tibemsAdmin_Create(admin: *mut usize,
       url: *const c_char, userName: *const c_char,
       password: *const c_char, sslparams: *mut c_void) -> tibems_status;
+  pub fn tibemsAdmin_Close(admin: usize) -> tibems_status;
   pub fn tibemsAdmin_GetInfo(
       admin: usize,
       serverInfo: *mut usize) -> tibems_status;
@@ -63,6 +64,12 @@ extern "C" {
       destInfo: usize,
       name: *const c_char,
       name_len: usize) -> tibems_status;
+  pub fn tibemsTopicInfo_GetSubscriptionCount(
+      topicInfo: usize,
+      count: *mut i64) -> tibems_status;
+  pub fn tibemsTopicInfo_GetDurableCount(
+      topicInfo: usize,
+      count: *mut i64) -> tibems_status;
 }
 
 #[allow(dead_code)]

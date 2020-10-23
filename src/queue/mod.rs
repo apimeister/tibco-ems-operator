@@ -10,8 +10,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
-use prometheus::IntGaugeVec;
-use prometheus::Opts;
 
 use crate::ems;
 
@@ -40,12 +38,11 @@ pub struct QueueStatus {
   pub consumerCount: i32,
 }
 
+
 pub static KNOWN_QUEUES: Lazy<Mutex<HashMap<String, Queue>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 
-pub static PENDING_MESSAGES: Lazy<Mutex<IntGaugeVec>> = Lazy::new(|| 
-  Mutex::new(IntGaugeVec::new(Opts::new("pending_messages", "pending messages"),&["name", "instance"]).unwrap()) );
-pub static CONSUMERS: Lazy<Mutex<IntGaugeVec>> = Lazy::new(|| 
-  Mutex::new(IntGaugeVec::new(Opts::new("consumers", "consumers"),&["queue", "instance"]).unwrap()) );
+pub static QUEUES: Lazy<Mutex<HashMap<String,ems::QueueInfo>>> = Lazy::new(|| 
+  Mutex::new(HashMap::new() ) );
   
 pub async fn watch_queues() -> Result<()>{
   
@@ -129,11 +126,8 @@ pub async fn watch_queues_status() -> Result<()>{
     for qinfo in &result {
       //update prometheus
       {
-        // println!("adding metrics for {}: {} {}",qinfo.queue_name,qinfo.pending_messages,qinfo.consumers);
-        let c_vec = CONSUMERS.lock().unwrap();
-        c_vec.with_label_values(&[&qinfo.queue_name, "EMS-ESB"]).set(qinfo.consumers as i64);
-        let m_vec = PENDING_MESSAGES.lock().unwrap();
-        m_vec.with_label_values(&[&qinfo.queue_name, "EMS-ESB"]).set(qinfo.pending_messages as i64);
+        let mut c_map = QUEUES.lock().unwrap();
+        c_map.insert(qinfo.queue_name.clone(),qinfo.clone());
       }
       //update k8s state
       let mut q : Option<Queue> = None;

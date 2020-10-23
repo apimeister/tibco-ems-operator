@@ -2,42 +2,54 @@ use tokio::task;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Result, Server, StatusCode};
 use hyper::header::CONTENT_TYPE;
-use prometheus::TextEncoder;
-use prometheus::Encoder;
-use prometheus::Registry;
-use std::sync::Mutex;
-use once_cell::sync::Lazy;
 
-pub mod ems;
+mod ems;
 mod queue;
 mod topic;
 mod bridge;
 
-pub static PROMETHEUS_REGISTRY: Lazy<Mutex<Registry>> = Lazy::new(|| {
-  let r = Registry::new();
-  r.register(Box::new(queue::PENDING_MESSAGES.lock().unwrap().clone())).unwrap();
-  r.register(Box::new(queue::CONSUMERS.lock().unwrap().clone())).unwrap();
-  Mutex::new(r)
-});
-
-async fn respond(req: Request<Body>) -> Result<Response<Body>> {
-  println!("{} {}",req.method(),req.uri());
-  let encoder = TextEncoder::new();
-  let metric_families;
+async fn respond(_req: Request<Body>) -> Result<Response<Body>> {
+  // println!("{} {}",req.method(),req.uri());
+  let mut body = "".to_owned();
+  body.push_str("# TYPE Q:pendingMessages gauge\n");
+  // body.push_str("# TYPE Q:⏳✉️ gauge\n");
+  body.push_str("# TYPE Q:consumers gauge\n");
+  body.push_str("# TYPE T:pendingMessages gauge\n");
+  // body.push_str("# TYPE T:⏳✉️ gauge\n");
+  body.push_str("# TYPE T:subscribers gauge\n");
+  body.push_str("# TYPE T:durables gauge\n");
+  //get queues 
   {
-    let r = PROMETHEUS_REGISTRY.lock().unwrap();
-    println!("gather metrics");
-    metric_families = r.gather();
+    let c_map = queue::QUEUES.lock().unwrap();
+    for key in c_map.keys() {
+      let qinfo = c_map.get(key).unwrap();
+      let pending = format!("Q:pendingMessages{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.queue_name,qinfo.pending_messages);
+      // let pending2 = format!("Q:⏳✉️{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.queue_name,qinfo.pending_messages);
+      let consumers = format!("Q:consumers{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.queue_name,qinfo.consumers);
+      body.push_str(&pending);
+      // body.push_str(&pending2);
+      body.push_str(&consumers);
+    }
   }
-  let mut buffer = Vec::<u8>::new();
-  println!("encode response");
-  encoder.encode(&metric_families, &mut buffer).unwrap();
-  let str = String::from_utf8(buffer.clone()).unwrap();
-  println!("{}",str);
+  //get topics 
+  {
+    let c_map = topic::TOPICS.lock().unwrap();
+    for key in c_map.keys() {
+      let tinfo = c_map.get(key).unwrap();
+      let pending = format!("T:pendingMessages{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.topic_name,tinfo.pending_messages);
+      // let pending2 = format!("T:⏳✉️{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.topic_name,tinfo.pending_messages);
+      let subscribers = format!("T:subscribers{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.durables,tinfo.subscribers);
+      let durables = format!("T:durables{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.durables,tinfo.durables);
+      body.push_str(&pending);
+      // body.push_str(&pending2);
+      body.push_str(&subscribers);
+      body.push_str(&durables);
+    }
+  }
   let response = Response::builder()
       .status(StatusCode::OK)
-      .header(CONTENT_TYPE, encoder.format_type())
-      .body(Body::from(str))
+      .header(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
+      .body(Body::from(body))
       .unwrap();
   Ok(response)
 }
