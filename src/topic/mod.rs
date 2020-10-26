@@ -1,5 +1,5 @@
 use kube::{api::{Api, ListParams, Meta, PostParams}, Client};
-use kube_runtime::watcher;
+use kube::api::WatchEvent;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
@@ -44,58 +44,50 @@ pub static TOPICS: Lazy<Mutex<HashMap<String,ems::TopicInfo>>> = Lazy::new(||
 
 pub async fn watch_topics() -> Result<()>{
   let crds: Api<Topic> = get_topic_client().await;
-  let updater: Api<Topic> = crds.clone();
-
+  let updater: Api<Topic> = crds.clone(); 
   let lp = ListParams::default();
+
+  let mut last_version: String = "0".to_owned();
   println!("subscribing events of type topics.tibcoems.apimeister.com/v1");
-  let mut stream = watcher(crds, lp).boxed();
-  loop {
-    let entity = stream.try_next().await;
-    match entity {
-      Ok(status)=> {
-        match status.unwrap() {
-          kube_runtime::watcher::Event::Applied(mut topic) =>{
-            let topic_name = get_topic_name(&topic);
-            let name = Meta::name(&topic);
-            {
-              let mut res = KNOWN_TOPICS.lock().unwrap();
-              match res.get(&topic_name) {
-                Some(_queue) => println!("topic already known {}", &topic_name),
-                None => {
-                  println!("adding topic {}", &topic_name);
-                  create_topic(&mut topic);
-                  let q = (&topic).clone();
-                  let n = (&topic_name).clone();
-                  res.insert(n, q);
-                },
-              }
-            }
-            match topic.status {
-              None =>{
-                let q_json = serde_json::to_string(&topic).unwrap();
-                let pp = PostParams::default();
-                let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-              },
-              _ => {},
-            };
-          }
-          kube_runtime::watcher::Event::Deleted(topic) =>{
-            delete_topic(topic);
-          },
-          kube_runtime::watcher::Event::Restarted(topics) =>{
+  loop{
+    let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
+    while let Some(status) = stream.try_next().await.unwrap() {
+      match status {
+        WatchEvent::Added(mut topic) =>{
+          let topic_name = get_topic_name(&topic);
+          let name = Meta::name(&topic);
+          {
             let mut res = KNOWN_TOPICS.lock().unwrap();
-            for (idx, topic) in topics.iter().enumerate() {
-              let topic_name = get_topic_name(topic);
-              println!("{}: adding topic to monitor {}",idx+1,topic_name);
-              res.insert(topic_name.to_owned(), topic.clone());
+            match res.get(&topic_name) {
+              Some(_queue) => println!("topic already known {}", &topic_name),
+              None => {
+                println!("adding topic {}", &topic_name);
+                create_topic(&mut topic);
+                let q = (&topic).clone();
+                let n = (&topic_name).clone();
+                res.insert(n, q);
+              },
             }
-          },
-        }
-      },
-      Err(err) => {
-        eprintln!("error while watching topic changes");
-        eprintln!("{:?}",err);
-      },
+          }
+          match topic.status {
+            None =>{
+              let q_json = serde_json::to_string(&topic).unwrap();
+              let pp = PostParams::default();
+              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+            },
+            _ => {},
+          };
+        },
+        WatchEvent::Deleted(topic) =>{
+          delete_topic(topic);
+        },
+        WatchEvent::Error(e) => {
+          println!("Error {}", e);
+          println!("resetting offset to 0");
+          last_version="0".to_owned();
+        },
+        _ => {},
+      };
     }
   }
 }

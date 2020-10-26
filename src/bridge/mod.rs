@@ -1,13 +1,10 @@
-use kube::{api::{Api, ListParams}, Client};
-use kube_runtime::watcher;
+use kube::{api::{Api, ListParams, Meta}, Client};
+use kube::api::WatchEvent;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
 use kube::config::Config;
 use std::env;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use once_cell::sync::Lazy;
 use hyper::Result;
 
 use crate::ems;
@@ -23,29 +20,44 @@ pub struct BridgeSpec {
   pub selector: Option<String>,
 }
 
-pub static KNOWN_BRIDGES: Lazy<Mutex<HashMap<String, Bridge>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
-
 pub async fn watch_bridges() -> Result<()>{
   let crds: Api<Bridge> = get_bridge_client().await;
-  let lp = ListParams::default();
+  let lp = ListParams::default().timeout(30);
 
+  let mut last_version: String = "0".to_owned();
   println!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
-  let mut stream = watcher(crds, lp).boxed();
-  while let Some(status) = stream.try_next().await.unwrap() {
-    match status {
-      kube_runtime::watcher::Event::Applied(bridge) =>{
-        create_bridge(bridge);
+  loop{
+    let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
+    while let Some(status) = stream.try_next().await.unwrap() {
+      match status {
+          WatchEvent::Added(bridge) =>{
+            let ver = Meta::resource_ver(&bridge).unwrap();
+            println!("Added {}@{}", Meta::name(&bridge), &ver);
+            create_bridge(bridge);
+            last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+          },
+          WatchEvent::Modified(bridge) => {
+            let ver = Meta::resource_ver(&bridge).unwrap();
+            println!("Modified {}@{}", Meta::name(&bridge), &ver);
+            create_bridge(bridge);
+            last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+          }
+          WatchEvent::Deleted(bridge) =>{
+            let ver = Meta::resource_ver(&bridge).unwrap();
+            println!("Deleted {}@{}", Meta::name(&bridge), &ver);
+            delete_bridge(bridge);
+            last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+          },
+          WatchEvent::Error(e) => {
+            println!("Error {}", e);
+            println!("resetting offset to 0");
+            last_version="0".to_owned();
+          },
+          _ => {}
       }
-      kube_runtime::watcher::Event::Deleted(bridge) =>{
-        delete_bridge(bridge);
-      },
-      kube_runtime::watcher::Event::Restarted(_bridge) =>{
-        println!("restart bridge event not implemented");
-      },
     }
+    println!("finished watching bridges");
   }
-  println!("finished watching bridges");
-  Ok(())
 }
 
 async fn get_bridge_client() -> Api<Bridge>{

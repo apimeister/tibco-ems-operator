@@ -1,5 +1,5 @@
 use kube::{api::{Api, ListParams, Meta, PostParams}, Client};
-use kube_runtime::watcher;
+use kube::api::WatchEvent;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
@@ -45,70 +45,54 @@ pub static QUEUES: Lazy<Mutex<HashMap<String,ems::QueueInfo>>> = Lazy::new(||
   Mutex::new(HashMap::new() ) );
   
 pub async fn watch_queues() -> Result<()>{
-  
+  let crds: Api<Queue> = get_queue_client().await;
+  let updater: Api<Queue> = crds.clone(); 
+  let lp = ListParams::default();
+
+  let mut last_version: String = "0".to_owned();
   println!("subscribing events of type queues.tibcoems.apimeister.com/v1");
   loop{
-    let crds: Api<Queue> = get_queue_client().await;
-    let updater: Api<Queue> = crds.clone();  
-    let lp = ListParams::default();
-    let mut stream = watcher(crds, lp).boxed();
-    loop {
-      let entity = stream.try_next().await;
-      match entity {
-        Ok(status)=> {
-          match status.unwrap() {
-            kube_runtime::watcher::Event::Applied(mut queue) =>{
-              let qname = get_queue_name(&queue);
-              let name = Meta::name(&queue);
-              {
-                let mut res = KNOWN_QUEUES.lock().unwrap();
-                match res.get(&qname) {
-                  Some(_queue) => println!("queue already known {}", &qname),
-                  None => {
-                    println!("adding queue {}", &qname);
-                    create_queue(&mut queue);
-                    let q = (&queue).clone();
-                    let n = (&qname).clone();
-                    res.insert(n, q);
-                  },
-                }
-              }
-              match queue.status {
-                None =>{
-                  let q_json = serde_json::to_string(&queue).unwrap();
-                  let pp = PostParams::default();
-                  let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-                },
-                _ => {},
-              };
+    let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
+    while let Some(status) = stream.try_next().await.unwrap() {
+      match status {
+        WatchEvent::Added(mut queue) =>{
+          let qname = get_queue_name(&queue);
+          let name = Meta::name(&queue);
+          {
+            let mut res = KNOWN_QUEUES.lock().unwrap();
+            match res.get(&qname) {
+              Some(_queue) => println!("queue already known {}", &qname),
+              None => {
+                println!("adding queue {}", &qname);
+                create_queue(&mut queue);
+                let q = (&queue).clone();
+                let n = (&qname).clone();
+                res.insert(n, q);
+              },
             }
-            kube_runtime::watcher::Event::Deleted(queue) =>{
-              delete_queue(queue.clone());
-              let mut res = KNOWN_QUEUES.lock().unwrap();
-              let qname = get_queue_name(&queue);
-              res.remove(&qname);           
-            },
-            kube_runtime::watcher::Event::Restarted(queues) =>{
-              let mut res = KNOWN_QUEUES.lock().unwrap();
-              for (idx, queue) in queues.iter().enumerate() {
-                let queue_name = get_queue_name(queue);
-                let obj_name = get_obj_name_from_queue(queue);
-                if queue_name != obj_name {
-                  println!("{}: adding queue to monitor {}",idx+1,queue_name);
-                }else{
-                  println!("{}: adding queue to monitor {} ({})",idx+1,queue_name,obj_name);
-                }
-                res.insert(queue_name.to_owned(), queue.clone()); 
-              }
-            },
           }
+          match queue.status {
+            None =>{
+              let q_json = serde_json::to_string(&queue).unwrap();
+              let pp = PostParams::default();
+              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+            },
+            _ => {},
+          };
         },
-        Err(err) => {
-          eprintln!("error while watching queue changes");
-          eprintln!("{:?}",err);
-          break;
+        WatchEvent::Deleted(queue) =>{
+          delete_queue(queue.clone());
+          let mut res = KNOWN_QUEUES.lock().unwrap();
+          let qname = get_queue_name(&queue);
+          res.remove(&qname);           
         },
-      }
+        WatchEvent::Error(e) => {
+          println!("Error {}", e);
+          println!("resetting offset to 0");
+          last_version="0".to_owned();
+        },
+        _ => {},
+      };
     }
   }
 }
