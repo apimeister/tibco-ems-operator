@@ -2,6 +2,8 @@ use tokio::task;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Result, Server, StatusCode};
 use hyper::header::CONTENT_TYPE;
+use std::env;
+use basic_tcp_proxy::TcpProxy;
 
 mod ems;
 mod queue;
@@ -54,6 +56,12 @@ async fn respond(_req: Request<Body>) -> Result<Response<Body>> {
   Ok(response)
 }
 
+async fn proxy_ems(port: u16, url: String){
+  println!("forwarding port: {} to {}",port,url);
+  let _proxy = TcpProxy::new(port, url.parse().unwrap());
+  loop {}
+}
+
 #[tokio::main]
 async fn main() -> Result<()>  {
     println!("starting tibco-ems-operator");
@@ -65,6 +73,21 @@ async fn main() -> Result<()>  {
     //watch object statistics
     let _ignore = task::spawn(queue::watch_queues_status());
     let _ignore = task::spawn(topic::watch_topics_status());
+
+    //proxy ems connection
+    let server_url = env::var("SERVER_URL").unwrap();
+    if server_url.contains(",") {
+      //load balanced config
+      let urls: Vec<&str> = server_url.split_terminator(',').collect();
+      let url1 = &urls[0].get(6..).unwrap();
+      let url2 = &urls[1].get(6..).unwrap();
+      let _ignore = task::spawn(proxy_ems(7222, url1.to_string()));
+      let _ignore = task::spawn(proxy_ems(7223, url2.to_string()));
+    }else{
+      let url = server_url.get(6..).unwrap();
+      let _ignore = task::spawn(proxy_ems(7222, url.to_owned()));
+      let _ignore = task::spawn(proxy_ems(7223, url.to_owned()));
+    }
 
     //spawn metrics server
     let addr = "0.0.0.0:8080".parse().unwrap();
