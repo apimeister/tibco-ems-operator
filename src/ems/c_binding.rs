@@ -52,6 +52,12 @@ extern "C" {
       destType: tibemsDestinationType,
       permType: tibems_permType,
       statOnly: tibems_bool) ->tibems_status;
+  pub fn tibemsAdmin_GetCommandTimeout(
+      admin: usize,
+      timeout: *mut i64);
+  pub fn tibemsAdmin_SetCommandTimeout(
+      admin: usize,
+      timeout: i64) -> tibems_status;
   pub fn tibemsCollection_GetFirst(
       collection: usize,
       collection_ptr: *mut usize) -> tibems_status;

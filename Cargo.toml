@@ -15,4 +15,3 @@ futures = "0.3"
 tokio = { version = "0.2", features = ["full"] }
 once_cell = "1.4"
 hyper = "0.13"
-basic_tcp_proxy = "0.1"

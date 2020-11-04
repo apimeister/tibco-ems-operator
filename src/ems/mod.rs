@@ -14,7 +14,7 @@ use once_cell::sync::Lazy;
 
 pub mod c_binding;
 
-pub static ADMIN_CONNECTION: Lazy<Mutex<usize>> = Lazy::new(|| {
+fn init_admin_connection() -> usize{
   let username = env::var("USERNAME").unwrap();
   let password = env::var("PASSWORD").unwrap();
   let server_url = env::var("SERVER_URL").unwrap();
@@ -35,10 +35,35 @@ pub static ADMIN_CONNECTION: Lazy<Mutex<usize>> = Lazy::new(|| {
       c_password.as_ptr(),ssl);
     if response != tibems_status::TIBEMS_OK {
       println!("tibemsAdmin_Create {:?}",response);
+    } 
+    //check for increased timeout setting
+    match env::var("ADMIN_COMMAND_TIMEOUT_MS") {
+      Ok(timeout) => {
+        println!("setting command timeout to {}",timeout);
+        let timeout_number = timeout.parse::<i64>();
+        match timeout_number {
+          Ok(nr) =>{
+            let response = tibemsAdmin_SetCommandTimeout(admin,nr);
+            if response != tibems_status::TIBEMS_OK {
+              println!("tibemsAdmin_SetCommandTimeout {:?}",response);
+            }    
+          },
+          Err(_err)=> {}
+        }
+      },
+      Err(_err) => {}
     }
   }
   println!("creating admin connection");
-  Mutex::new(admin) 
+  return admin
+}
+
+pub static TOPIC_ADMIN_CONNECTION: Lazy<Mutex<usize>> = Lazy::new(|| {
+  Mutex::new(init_admin_connection())
+});
+
+pub static QUEUE_ADMIN_CONNECTION: Lazy<Mutex<usize>> = Lazy::new(|| {
+  Mutex::new(init_admin_connection())
 });
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,7 +85,7 @@ pub fn get_queue_stats() -> Vec<QueueInfo> {
   let start = Instant::now();
   let mut result = Vec::new();
   unsafe{
-    let admin: usize = *ADMIN_CONNECTION.lock().unwrap();
+    let admin: usize = *QUEUE_ADMIN_CONNECTION.lock().unwrap();
     //get all destinations
     let pattern = CString::new(">").unwrap();
     let mut dest_collection: usize = 1;
@@ -156,7 +181,7 @@ pub fn get_topic_stats() -> Vec<TopicInfo> {
   let start = Instant::now();
   let mut result: Vec<TopicInfo> = Vec::new();
   unsafe{
-    let admin: usize = *ADMIN_CONNECTION.lock().unwrap();
+    let admin: usize = *TOPIC_ADMIN_CONNECTION.lock().unwrap();
     //get all destinations
     let pattern = CString::new(">").unwrap();
     let mut dest_collection: usize = 1;
