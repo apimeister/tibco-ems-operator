@@ -5,6 +5,7 @@ This project is a work in progress. It is not yet functional and I will update t
 ## available ENV properties:
 
 | name |cardinality | value |  description |
+| --- | --- | --- | --- |
 |KUBERNETES_SERVICE_HOST |required | kubernetes.default.svc.cluster.local | references the api server, if not present, the rust TLS will fail because it cannot validate the IP of the API server |
 |STATUS_REFRESH_IN_MS |required | 10000 | how often statistics are refreshed |
 |KUBERNETES_NAMESPACE | required | {ref metadata.namespace} | what namespace should be captured |
