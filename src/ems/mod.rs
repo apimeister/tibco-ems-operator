@@ -58,22 +58,17 @@ fn init_admin_connection() -> usize{
   return admin
 }
 
-pub static TOPIC_ADMIN_CONNECTION: Lazy<Mutex<usize>> = Lazy::new(|| {
-  Mutex::new(init_admin_connection())
-});
+pub static TOPIC_ADMIN_CONNECTION: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(init_admin_connection()));
+pub static QUEUE_ADMIN_CONNECTION: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(init_admin_connection()));
 
-pub static QUEUE_ADMIN_CONNECTION: Lazy<Mutex<usize>> = Lazy::new(|| {
-  Mutex::new(init_admin_connection())
-});
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct QueueInfo{
   pub queue_name: String,
   pub pending_messages: i64,
   pub consumers: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TopicInfo{
   pub topic_name: String,
   pub pending_messages: i64,
