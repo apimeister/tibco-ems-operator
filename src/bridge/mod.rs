@@ -22,41 +22,59 @@ pub struct BridgeSpec {
 
 pub async fn watch_bridges() -> Result<()>{
   let crds: Api<Bridge> = get_bridge_client().await;
-  let lp = ListParams::default().timeout(30);
+  let lp = ListParams::default();
 
   let mut last_version: String = "0".to_owned();
-  println!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
+  info!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
   loop{
+    debug!("B: new loop iteration with offset {}",last_version);
     let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
-    while let Some(status) = stream.try_next().await.unwrap() {
-      match status {
-          WatchEvent::Added(bridge) =>{
-            let ver = Meta::resource_ver(&bridge).unwrap();
-            println!("Added {}@{}", Meta::name(&bridge), &ver);
-            create_bridge(bridge);
-            last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
-          },
-          WatchEvent::Modified(bridge) => {
-            let ver = Meta::resource_ver(&bridge).unwrap();
-            println!("Modified {}@{}", Meta::name(&bridge), &ver);
-            create_bridge(bridge);
-            last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+    loop {
+      debug!("B: new stream item");
+      let stream_result = stream.try_next().await;
+      match stream_result {
+        Ok(status_obj) => {
+          match status_obj {
+            Some(status) => {
+              match status {
+                WatchEvent::Added(bridge) =>{
+                  let ver = Meta::resource_ver(&bridge).unwrap();
+                  println!("Added {}@{}", Meta::name(&bridge), &ver);
+                  create_bridge(bridge);
+                  last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+                },
+                WatchEvent::Modified(bridge) => {
+                  let ver = Meta::resource_ver(&bridge).unwrap();
+                  println!("Modified {}@{}", Meta::name(&bridge), &ver);
+                  create_bridge(bridge);
+                  last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+                }
+                WatchEvent::Deleted(bridge) =>{
+                  let ver = Meta::resource_ver(&bridge).unwrap();
+                  println!("Deleted {}@{}", Meta::name(&bridge), &ver);
+                  delete_bridge(bridge);
+                  last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+                },
+                WatchEvent::Error(e) => {
+                  println!("Error {}", e);
+                  println!("resetting offset to 0");
+                  last_version="0".to_owned();
+                },
+                _ => {}
+              };
+            },
+            None => {
+              debug!("B: request loop returned empty");  
+              break;
+            }
           }
-          WatchEvent::Deleted(bridge) =>{
-            let ver = Meta::resource_ver(&bridge).unwrap();
-            println!("Deleted {}@{}", Meta::name(&bridge), &ver);
-            delete_bridge(bridge);
-            last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
-          },
-          WatchEvent::Error(e) => {
-            println!("Error {}", e);
-            println!("resetting offset to 0");
-            last_version="0".to_owned();
-          },
-          _ => {}
+        },
+        Err(err) => {
+          debug!("B: error on request loop {:?}",err);  
+          break;
+        }
       }
     }
-    println!("finished watching bridges");
   }
 }
 
@@ -70,7 +88,7 @@ async fn get_bridge_client() -> Api<Bridge>{
 
 fn create_bridge(bridge: Bridge){
   let bridge_name: String = bridge.metadata.name.unwrap();
-  println!("creating bridge {}",bridge_name);
+  info!("creating bridge {}",bridge_name);
   let mut source_name = bridge.spec.source_name;
   let mut target_name = bridge.spec.target_name;
   source_name.make_ascii_uppercase();
@@ -79,14 +97,14 @@ fn create_bridge(bridge: Bridge){
         +"source="+&bridge.spec.source_type+":"+&source_name
         +"target="+&bridge.spec.target_type+":"+&target_name
         +&"\n";
-  println!("script: {}",script);
+  info!("script: {}",script);
   let result = ems::run_tibems_script(script);
-  println!("{}",result);
+  info!("{}",result);
 }
 
 fn delete_bridge(bridge: Bridge){
   let bridge_name: String = bridge.metadata.name.unwrap();
-  println!("deleting bridge {}",bridge_name);
+  info!("deleting bridge {}",bridge_name);
   let mut source_name = bridge.spec.source_name;
   let mut target_name = bridge.spec.target_name;
   source_name.make_ascii_uppercase();
@@ -95,7 +113,7 @@ fn delete_bridge(bridge: Bridge){
         +"source="+&bridge.spec.source_type+":"+&source_name
         +"target="+&bridge.spec.target_type+":"+&target_name
         +&"\n";
-  println!("script: {}",script);
+  info!("script: {}",script);
   let result = ems::run_tibems_script(script);
-  println!("{}",result);
+  info!("{}",result);
 }

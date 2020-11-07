@@ -50,49 +50,68 @@ pub async fn watch_queues() -> Result<()>{
   let lp = ListParams::default();
 
   let mut last_version: String = "0".to_owned();
-  println!("subscribing events of type queues.tibcoems.apimeister.com/v1");
+  info!("subscribing events of type queues.tibcoems.apimeister.com/v1");
   loop{
+    debug!("Q: new loop iteration with offset {}",last_version);
     let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
-    while let Some(status) = stream.try_next().await.unwrap() {
-      match status {
-        WatchEvent::Added(mut queue) =>{
-          let qname = get_queue_name(&queue);
-          let name = Meta::name(&queue);
-          {
-            let mut res = KNOWN_QUEUES.lock().unwrap();
-            match res.get(&qname) {
-              Some(_queue) => println!("queue already known {}", &qname),
-              None => {
-                println!("adding queue {}", &qname);
-                create_queue(&mut queue);
-                let q = (&queue).clone();
-                let n = (&qname).clone();
-                res.insert(n, q);
-              },
+    loop {
+      debug!("Q: new stream item");
+      let stream_result = stream.try_next().await;
+      match stream_result {
+        Ok(status_obj) => {
+          match status_obj {
+            Some(status) => {
+              match status {
+                WatchEvent::Added(mut queue) =>{
+                  let qname = get_queue_name(&queue);
+                  let name = Meta::name(&queue);
+                  {
+                    let mut res = KNOWN_QUEUES.lock().unwrap();
+                    match res.get(&qname) {
+                      Some(_queue) => println!("queue already known {}", &qname),
+                      None => {
+                        println!("adding queue {}", &qname);
+                        create_queue(&mut queue);
+                        let q = (&queue).clone();
+                        let n = (&qname).to_string();
+                        res.insert(n, q);
+                      },
+                    }
+                  }
+                  match queue.status {
+                    None =>{
+                      let q_json = serde_json::to_string(&queue).unwrap();
+                      let pp = PostParams::default();
+                      let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+                    },
+                    _ => {},
+                  };
+                },
+                WatchEvent::Deleted(queue) =>{
+                  delete_queue(queue.clone());
+                  let mut res = KNOWN_QUEUES.lock().unwrap();
+                  let qname = get_queue_name(&queue);
+                  res.remove(&qname);           
+                },
+                WatchEvent::Error(e) => {
+                  println!("Error {}", e);
+                  println!("resetting offset to 0");
+                  last_version="0".to_owned();
+                },
+                _ => {},
+              };
+            },
+            None => {
+              debug!("Q: request loop returned empty");  
+              break;
             }
           }
-          match queue.status {
-            None =>{
-              let q_json = serde_json::to_string(&queue).unwrap();
-              let pp = PostParams::default();
-              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-            },
-            _ => {},
-          };
         },
-        WatchEvent::Deleted(queue) =>{
-          delete_queue(queue.clone());
-          let mut res = KNOWN_QUEUES.lock().unwrap();
-          let qname = get_queue_name(&queue);
-          res.remove(&qname);           
-        },
-        WatchEvent::Error(e) => {
-          println!("Error {}", e);
-          println!("resetting offset to 0");
-          last_version="0".to_owned();
-        },
-        _ => {},
-      };
+        Err(err) => {
+          debug!("Q: error on request loop {:?}",err);  
+          break;
+        }
+      }
     }
   }
 }
@@ -146,7 +165,7 @@ pub async fn watch_queues_status() -> Result<()>{
       match q {
         Some(mut local_q) => {
           let obj_name = get_obj_name_from_queue(&local_q);
-          println!("updating queue status for {}",obj_name);
+          info!("updating queue status for {}",obj_name);
           let updater: Api<Queue> = get_queue_client().await;
           let latest_queue: Queue = updater.get(&obj_name).await.unwrap();
           local_q.metadata.resource_version=Meta::resource_ver(&latest_queue);
@@ -156,8 +175,8 @@ pub async fn watch_queues_status() -> Result<()>{
           match result {
             Ok(_ignore) => {},
             Err(err) => {
-              eprintln!("error while updating queue object");
-              eprintln!("{:?}",err);
+              error!("error while updating queue object");
+              error!("{:?}",err);
             },
           }
         },
@@ -199,7 +218,7 @@ fn get_obj_name_from_queue(queue: &Queue) -> String {
 fn create_queue(queue: &mut Queue){
   let qname = get_queue_name(queue);
   let script = "create queue ".to_owned()+&qname+"\n";
-  println!("script: {}",script);
+  info!("script: {}",script);
   let _result = ems::run_tibems_script(script);
   //propagate defaults
   match queue.spec.maxmsgs {
@@ -222,7 +241,7 @@ fn create_queue(queue: &mut Queue){
 
 fn delete_queue(queue: Queue){
   let queue_name = get_queue_name(&queue);
-  println!("deleting queue {}", queue_name);
+  info!("deleting queue {}", queue_name);
   let script = "delete queue ".to_owned()+&queue_name+"\n";
   let _result = ems::run_tibems_script(script);
 }

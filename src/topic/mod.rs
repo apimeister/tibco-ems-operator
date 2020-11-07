@@ -48,46 +48,65 @@ pub async fn watch_topics() -> Result<()>{
   let lp = ListParams::default();
 
   let mut last_version: String = "0".to_owned();
-  println!("subscribing events of type topics.tibcoems.apimeister.com/v1");
+  info!("subscribing events of type topics.tibcoems.apimeister.com/v1");
   loop{
+    debug!("T: new loop iteration with offset {}",last_version);
     let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
-    while let Some(status) = stream.try_next().await.unwrap() {
-      match status {
-        WatchEvent::Added(mut topic) =>{
-          let topic_name = get_topic_name(&topic);
-          let name = Meta::name(&topic);
-          {
-            let mut res = KNOWN_TOPICS.lock().unwrap();
-            match res.get(&topic_name) {
-              Some(_queue) => println!("topic already known {}", &topic_name),
-              None => {
-                println!("adding topic {}", &topic_name);
-                create_topic(&mut topic);
-                let q = (&topic).clone();
-                let n = (&topic_name).clone();
-                res.insert(n, q);
-              },
+    loop {
+      debug!("T: new stream item");
+      let stream_result = stream.try_next().await;
+      match stream_result {
+        Ok(status_obj) => {
+          match status_obj {
+            Some(status) => {
+              match status {
+                WatchEvent::Added(mut topic) =>{
+                  let topic_name = get_topic_name(&topic);
+                  let name = Meta::name(&topic);
+                  {
+                    let mut res = KNOWN_TOPICS.lock().unwrap();
+                    match res.get(&topic_name) {
+                      Some(_queue) => println!("topic already known {}", &topic_name),
+                      None => {
+                        println!("adding topic {}", &topic_name);
+                        create_topic(&mut topic);
+                        let q = (&topic).clone();
+                        let n = (&topic_name).clone();
+                        res.insert(n, q);
+                      },
+                    }
+                  }
+                  match topic.status {
+                    None =>{
+                      let q_json = serde_json::to_string(&topic).unwrap();
+                      let pp = PostParams::default();
+                      let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+                    },
+                    _ => {},
+                  };
+                },
+                WatchEvent::Deleted(topic) =>{
+                  delete_topic(topic);
+                },
+                WatchEvent::Error(e) => {
+                  error!("Error {}", e);
+                  error!("resetting offset to 0");
+                  last_version="0".to_owned();
+                },
+                _ => {},
+              };
+            },
+            None => {
+              debug!("T: request loop returned empty");  
+              break;
             }
           }
-          match topic.status {
-            None =>{
-              let q_json = serde_json::to_string(&topic).unwrap();
-              let pp = PostParams::default();
-              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-            },
-            _ => {},
-          };
         },
-        WatchEvent::Deleted(topic) =>{
-          delete_topic(topic);
-        },
-        WatchEvent::Error(e) => {
-          println!("Error {}", e);
-          println!("resetting offset to 0");
-          last_version="0".to_owned();
-        },
-        _ => {},
-      };
+        Err(err) => {
+          debug!("T: error on request loop {:?}",err);  
+          break;
+        }
+      }
     }
   }
 }
@@ -144,7 +163,7 @@ pub async fn watch_topics_status() -> Result<()>{
       match t {
         Some(mut local_topic) => {
           let obj_name = get_obj_name_from_topic(&local_topic);
-          println!("updating topic status for {}",obj_name);
+          info!("updating topic status for {}",obj_name);
           let updater: Api<Topic> = get_topic_client().await;
           let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
           local_topic.metadata.resource_version=Meta::resource_ver(&latest_topic);
@@ -154,8 +173,8 @@ pub async fn watch_topics_status() -> Result<()>{
           match result {
             Ok(_ignore) => {},
             Err(err) => {
-              eprintln!("error while updating topic object");
-              eprintln!("{:?}",err);
+              error!("error while updating topic object");
+              error!("{:?}",err);
             },
           }
         },
@@ -197,7 +216,7 @@ fn get_obj_name_from_topic(topic: &Topic) -> String {
 fn create_topic(topic: &mut  Topic){
   let topic_name = get_topic_name(topic);
   let script = "create topic ".to_owned()+&topic_name;
-  println!("script: {}",script);
+  info!("script: {}",script);
   let _result = ems::run_tibems_script(script);
   //propagate defaults
   match topic.spec.maxmsgs {
@@ -219,6 +238,6 @@ fn create_topic(topic: &mut  Topic){
 fn delete_topic(topic: Topic){
   let topic_name = get_topic_name(&topic);
   let script = "delete topic ".to_owned()+&topic_name+&"\n";
-  println!("script: {}",script);
+  info!("script: {}",script);
   let _result = ems::run_tibems_script(script);
 }

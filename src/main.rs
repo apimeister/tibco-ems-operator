@@ -8,6 +8,9 @@ mod queue;
 mod topic;
 mod bridge;
 
+#[macro_use]
+extern crate log;
+
 async fn respond(_req: Request<Body>) -> Result<Response<Body>> {
   // println!("{} {}",req.method(),req.uri());
   let mut body = "".to_owned();
@@ -50,27 +53,29 @@ async fn respond(_req: Request<Body>) -> Result<Response<Body>> {
 
 #[tokio::main]
 async fn main() -> Result<()>  {
-    println!("starting tibco-ems-operator");
-    //watch custom resource objects
-    let _ignore = task::spawn(queue::watch_queues());
-    let _ignore = task::spawn(topic::watch_topics());
-    let _ignore = task::spawn(bridge::watch_bridges());
+  env_logger::init();
+  info!("starting tibco-ems-operator");
 
-    //watch object statistics
-    let _ignore = task::spawn(queue::watch_queues_status());
-    let _ignore = task::spawn(topic::watch_topics_status());
+  //watch custom resource objects
+  let _ignore = task::spawn(queue::watch_queues());
+  let _ignore = task::spawn(topic::watch_topics());
+  let _ignore = task::spawn(bridge::watch_bridges());
 
-    //spawn metrics server
-    let addr = "0.0.0.0:8080".parse().unwrap();
-    let make_service = make_service_fn(|_|
-       async { Ok::<_, hyper::Error>(service_fn(respond)) });
-    let server = Server::bind(&addr).serve(make_service);
-    println!("Listening on http://{}", addr);
-    if let Err(e) = server.await {
-        println!("server error: {}", e);
-    }
+  //watch object statistics
+  let _ignore = task::spawn(queue::watch_queues_status());
+  let _ignore = task::spawn(topic::watch_topics_status());
 
-    std::thread::park();
-    println!("done");
-    Ok(())
+  //spawn metrics server
+  let addr = "0.0.0.0:8080".parse().unwrap();
+  let make_service = make_service_fn(|_|
+      async { Ok::<_, hyper::Error>(service_fn(respond)) });
+  let server = Server::bind(&addr).serve(make_service);
+  info!("Listening on http://{}", addr);
+  if let Err(e) = server.await {
+      error!("server error: {}", e);
+  }
+
+  std::thread::park();
+  info!("done");
+  Ok(())
 }
