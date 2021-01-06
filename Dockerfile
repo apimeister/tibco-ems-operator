@@ -3,6 +3,7 @@ RUN curl -O 'https://edownloads.tibco.com/Installers/tap/EMS-CE/8.5.1/TIB_ems-ce
 RUN unzip TIB*
 RUN tar xzf TIB_ems-ce_8.5.1/tar/TIB_ems-ce_8.5.1_linux_x86_64-c_dev_kit.tar.gz
 RUN tar xzf TIB_ems-ce_8.5.1/tar/TIB_ems-ce_8.5.1_linux_x86_64-c_dotnet_client.tar.gz
+RUN tar xzf TIB_ems-ce_8.5.1/tar/TIB_ems-ce_8.5.1_linux_x86_64-thirdparty.tar.gz
 
 FROM rust as planner
 WORKDIR /app

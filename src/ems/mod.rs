@@ -286,15 +286,13 @@ pub fn run_tibems_script(script: String) -> String{
   let username = env::var("USERNAME").unwrap();
   let password = env::var("PASSWORD").unwrap();
   let server_url = env::var("SERVER_URL").unwrap();
-  let p = Command::new("tibemsadmin")
+  let p = Command::new("/opt/tibco/ems/8.5/bin/tibemsadmin")
       .arg("-user")
       .arg(username)
       .arg("-password")
       .arg(password)
       .arg("-server")
       .arg(server_url)
-      .arg("-module_path")
-      .arg("/usr/lib64")
       .arg("-script")
       .arg(&filename)
       .output().unwrap();
