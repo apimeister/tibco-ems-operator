@@ -9,8 +9,6 @@ WORKDIR /app
 RUN cargo install cargo-chef 
 COPY Cargo.toml .
 COPY src ./src
-COPY deps ./deps
-COPY build.rs .
 RUN cargo chef prepare  --recipe-path recipe.json
 
 FROM rust as cacher
@@ -25,7 +23,6 @@ ENV EMS_HOME=/opt/tibco/ems/8.5
 COPY Cargo.toml .
 COPY src ./src
 COPY --from=emslibs /opt /opt
-COPY build.rs .
 COPY --from=cacher /app/target target
 RUN cargo install --path .
 
