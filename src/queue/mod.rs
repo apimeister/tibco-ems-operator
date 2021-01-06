@@ -68,9 +68,9 @@ pub async fn watch_queues() -> Result<()>{
                   {
                     let mut res = KNOWN_QUEUES.lock().unwrap();
                     match res.get(&qname) {
-                      Some(_queue) => println!("queue already known {}", &qname),
+                      Some(_queue) => info!("queue already known {}", &qname),
                       None => {
-                        println!("adding queue {}", &qname);
+                        info!("adding queue {}", &qname);
                         create_queue(&mut queue);
                         let q = (&queue).clone();
                         let n = (&qname).to_string();
@@ -94,8 +94,8 @@ pub async fn watch_queues() -> Result<()>{
                   res.remove(&qname);           
                 },
                 WatchEvent::Error(e) => {
-                  println!("Error {}", e);
-                  println!("resetting offset to 0");
+                  error!("Error {}", e);
+                  error!("resetting offset to 0");
                   last_version="0".to_owned();
                 },
                 _ => {},

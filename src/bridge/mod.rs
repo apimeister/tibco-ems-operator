@@ -37,27 +37,27 @@ pub async fn watch_bridges() -> Result<()>{
           match status_obj {
             Some(status) => {
               match status {
-                WatchEvent::Added(bridge) =>{
+                WatchEvent::Added(bridge) => {
                   let ver = Meta::resource_ver(&bridge).unwrap();
-                  println!("Added {}@{}", Meta::name(&bridge), &ver);
+                  info!("Added {}@{}", Meta::name(&bridge), &ver);
                   create_bridge(bridge);
                   last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
                 },
                 WatchEvent::Modified(bridge) => {
                   let ver = Meta::resource_ver(&bridge).unwrap();
-                  println!("Modified {}@{}", Meta::name(&bridge), &ver);
+                  info!("Modified {}@{}", Meta::name(&bridge), &ver);
                   create_bridge(bridge);
                   last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
                 }
-                WatchEvent::Deleted(bridge) =>{
+                WatchEvent::Deleted(bridge) => {
                   let ver = Meta::resource_ver(&bridge).unwrap();
-                  println!("Deleted {}@{}", Meta::name(&bridge), &ver);
+                  info!("Deleted {}@{}", Meta::name(&bridge), &ver);
                   delete_bridge(bridge);
                   last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
                 },
                 WatchEvent::Error(e) => {
-                  println!("Error {}", e);
-                  println!("resetting offset to 0");
+                  error!("Error {}", e);
+                  error!("resetting offset to 0");
                   last_version="0".to_owned();
                 },
                 _ => {}
@@ -95,7 +95,7 @@ fn create_bridge(bridge: Bridge){
   target_name.make_ascii_uppercase();
   let script = "create bridge ".to_owned()
         +"source="+&bridge.spec.source_type+":"+&source_name
-        +"target="+&bridge.spec.target_type+":"+&target_name
+        +" target="+&bridge.spec.target_type+":"+&target_name
         +&"\n";
   info!("script: {}",script);
   let result = ems::run_tibems_script(script);
@@ -111,7 +111,7 @@ fn delete_bridge(bridge: Bridge){
   target_name.make_ascii_uppercase();
   let script = "delete bridge ".to_owned()
         +"source="+&bridge.spec.source_type+":"+&source_name
-        +"target="+&bridge.spec.target_type+":"+&target_name
+        +" target="+&bridge.spec.target_type+":"+&target_name
         +&"\n";
   info!("script: {}",script);
   let result = ems::run_tibems_script(script);

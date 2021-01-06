@@ -12,7 +12,6 @@ mod bridge;
 extern crate log;
 
 async fn respond(_req: Request<Body>) -> Result<Response<Body>> {
-  // println!("{} {}",req.method(),req.uri());
   let mut body = "".to_owned();
   body.push_str("# TYPE Q:pendingMessages gauge\n");
   body.push_str("# TYPE Q:consumers gauge\n");
@@ -53,7 +52,9 @@ async fn respond(_req: Request<Body>) -> Result<Response<Body>> {
 
 #[tokio::main]
 async fn main() -> Result<()>  {
-  env_logger::init();
+  env_logger::builder()
+    .format_timestamp(None)
+    .init();
   info!("starting tibco-ems-operator");
 
   //watch custom resource objects

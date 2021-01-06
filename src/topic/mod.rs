@@ -66,9 +66,9 @@ pub async fn watch_topics() -> Result<()>{
                   {
                     let mut res = KNOWN_TOPICS.lock().unwrap();
                     match res.get(&topic_name) {
-                      Some(_queue) => println!("topic already known {}", &topic_name),
+                      Some(_queue) => info!("topic already known {}", &topic_name),
                       None => {
-                        println!("adding topic {}", &topic_name);
+                        info!("adding topic {}", &topic_name);
                         create_topic(&mut topic);
                         let q = (&topic).clone();
                         let n = (&topic_name).clone();
