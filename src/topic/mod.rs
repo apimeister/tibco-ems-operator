@@ -10,10 +10,11 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
+use schemars::JsonSchema;
 
 use crate::ems;
 
-#[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
+#[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", 
     kind="Topic",
     status="TopicStatus",
@@ -29,7 +30,7 @@ pub struct TopicSpec {
   pub prefetch: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[allow(non_snake_case)]
 pub struct TopicStatus {
   pub pendingMessages: i64,

@@ -6,10 +6,11 @@ use kube_derive::CustomResource;
 use kube::config::Config;
 use std::env;
 use hyper::Result;
+use schemars::JsonSchema;
 
 use crate::ems;
 
-#[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
+#[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", kind="Bridge", namespaced)]
 #[allow(non_snake_case)]
 pub struct BridgeSpec {

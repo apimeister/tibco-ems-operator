@@ -10,10 +10,11 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
+use schemars::JsonSchema;
 
 use crate::ems;
 
-#[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug)]
+#[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", 
     kind="Queue",
     status="QueueStatus",
@@ -31,7 +32,7 @@ pub struct QueueSpec {
   pub redeliveryDelay: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[allow(non_snake_case)]
 pub struct QueueStatus {
   pub pendingMessages: i64,
