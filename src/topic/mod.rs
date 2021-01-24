@@ -4,13 +4,13 @@ use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
 use kube::config::Config;
-use std::env;
 use tokio::time::{self, Duration};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
 use schemars::JsonSchema;
+use env_var::env_var;
 
 use crate::ems;
 
@@ -113,13 +113,8 @@ pub async fn watch_topics() -> Result<()>{
 }
 
 pub async fn watch_topics_status() -> Result<()>{
-  let status_refresh_in_ms = env::var("STATUS_REFRESH_IN_MS");
-  let mut interval: u64  = 10000;
-  match status_refresh_in_ms {
-    Ok(val) => interval=val.parse().unwrap(),
-    Err(_error) => {},
-  }
-  let mut interval = time::interval(Duration::from_millis(interval));
+  let status_refresh_in_ms: u64 = env_var!(optional "STATUS_REFRESH_IN_MS", default: "10000").parse().unwrap();
+  let mut interval = time::interval(Duration::from_millis(status_refresh_in_ms));
   loop {
     let result = ems::get_topic_stats();
     for tinfo in &result {
@@ -189,7 +184,7 @@ pub async fn watch_topics_status() -> Result<()>{
 async fn get_topic_client() -> Api<Topic>{
   let config = Config::infer().await.unwrap();
   let client: kube::Client = Client::new(config);
-  let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
+  let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Topic> = Api::namespaced(client, &namespace);
   return crds;
 }

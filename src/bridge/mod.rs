@@ -4,9 +4,9 @@ use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
 use kube::config::Config;
-use std::env;
 use hyper::Result;
 use schemars::JsonSchema;
+use env_var::env_var;
 
 use crate::ems;
 
@@ -82,7 +82,7 @@ pub async fn watch_bridges() -> Result<()>{
 async fn get_bridge_client() -> Api<Bridge>{
   let config = Config::infer().await.unwrap();
   let client: kube::Client = Client::new(config);
-  let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
+  let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Bridge> = Api::namespaced(client, &namespace);
   return crds;
 }

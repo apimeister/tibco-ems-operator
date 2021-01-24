@@ -1,4 +1,3 @@
-use tokio::task;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Result, Server, StatusCode};
 use hyper::header::CONTENT_TYPE;
@@ -51,20 +50,20 @@ async fn respond(_req: Request<Body>) -> Result<Response<Body>> {
 }
 
 #[tokio::main]
-async fn main() -> Result<()>  {
+async fn main() {
   env_logger::builder()
     .format_timestamp(None)
     .init();
   info!("starting tibco-ems-operator");
 
   //watch custom resource objects
-  let _ignore = task::spawn(queue::watch_queues());
-  let _ignore = task::spawn(topic::watch_topics());
-  let _ignore = task::spawn(bridge::watch_bridges());
+  let _ignore = tokio::spawn(queue::watch_queues());
+  let _ignore = tokio::spawn(topic::watch_topics());
+  let _ignore = tokio::spawn(bridge::watch_bridges());
 
   //watch object statistics
-  let _ignore = task::spawn(queue::watch_queues_status());
-  let _ignore = task::spawn(topic::watch_topics_status());
+  let _ignore = tokio::spawn(queue::watch_queues_status());
+  let _ignore = tokio::spawn(topic::watch_topics_status());
 
   //spawn metrics server
   let addr = "0.0.0.0:8080".parse().unwrap();
@@ -78,5 +77,4 @@ async fn main() -> Result<()>  {
 
   std::thread::park();
   info!("done");
-  Ok(())
 }

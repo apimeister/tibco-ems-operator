@@ -4,13 +4,14 @@ use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
 use kube::config::Config;
-use std::env;
 use tokio::time::{self, Duration};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
 use schemars::JsonSchema;
+use std::ffi::CString;
+use env_var::env_var;
 
 use crate::ems;
 
@@ -24,8 +25,8 @@ pub struct QueueSpec {
   pub name: Option<String>,
   pub expiration: Option<u32>,
   pub global: Option<bool>,
-  pub maxbytes: Option<u32>,
-  pub maxmsgs: Option<u32>,
+  pub maxbytes: Option<i64>,
+  pub maxmsgs: Option<i64>,
   pub maxRedelivery: Option<u32>,
   pub overflowPolicy: Option<u8>,
   pub prefetch: Option<u32>,
@@ -50,7 +51,7 @@ pub async fn watch_queues() -> Result<()>{
   let updater: Api<Queue> = crds.clone(); 
   let lp = ListParams::default();
 
-  let mut last_version: String = "0".to_owned();
+  let mut last_version: String = "0".to_string();
   info!("subscribing events of type queues.tibcoems.apimeister.com/v1");
   loop{
     debug!("Q: new loop iteration with offset {}",last_version);
@@ -118,13 +119,8 @@ pub async fn watch_queues() -> Result<()>{
 }
 
 pub async fn watch_queues_status() -> Result<()>{
-  let status_refresh_in_ms = env::var("STATUS_REFRESH_IN_MS");
-  let mut interval: u64  = 10000;
-  match status_refresh_in_ms {
-    Ok(val) => interval=val.parse().unwrap(),
-    Err(_error) => {},
-  }
-  let mut interval = time::interval(Duration::from_millis(interval));
+  let status_refresh_in_ms: u64 = env_var!(optional "STATUS_REFRESH_IN_MS", default: "10000").parse().unwrap();
+  let mut interval = time::interval(Duration::from_millis(status_refresh_in_ms));
   loop {
     let result = ems::get_queue_stats();
     for qinfo in &result {
@@ -191,7 +187,7 @@ pub async fn watch_queues_status() -> Result<()>{
 async fn get_queue_client() -> Api<Queue>{
   let config = Config::infer().await.unwrap();
   let client: kube::Client = Client::new(config);
-  let namespace = env::var("KUBERNETES_NAMESPACE").unwrap();
+  let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Queue> = Api::namespaced(client, &namespace);
   return crds;
 }
@@ -217,10 +213,88 @@ fn get_obj_name_from_queue(queue: &Queue) -> String {
 }
 
 fn create_queue(queue: &mut Queue){
-  let qname = get_queue_name(queue);
-  let script = "create queue ".to_owned()+&qname+"\n";
-  info!("script: {}",script);
-  let _result = ems::run_tibems_script(script);
+  let admin_queue_name = "$sys.admin";
+  let create_destination = 18;
+  //create queue map-message
+  let mut msg: usize = 0;
+  unsafe {
+    let status = tibco_ems_sys::tibemsMapMsg_Create(&mut msg);
+    println!("tibemsMapMsg_Create {:?}",status);
+    let c_dn = CString::new("dn".to_string()).unwrap();
+    let destination_name = get_queue_name(queue);
+    let c_destination_name = CString::new(destination_name).unwrap();
+    tibco_ems_sys::tibemsMapMsg_SetString(msg, c_dn.as_ptr(), c_destination_name.as_ptr());
+    println!("tibemsMapMsg_SetString {:?}",status);
+    let c_dt = CString::new("dt".to_string()).unwrap();
+    tibco_ems_sys::tibemsMapMsg_SetInt(msg, c_dt.as_ptr(), 1);
+    println!("tibemsMapMsg_SetInt {:?}",status);
+    match queue.spec.maxbytes {
+      Some(val) => {
+        let c_mb = CString::new("mb").unwrap();
+        tibco_ems_sys::tibemsMapMsg_SetLong(msg, c_mb.as_ptr(), val);
+        println!("tibemsMapMsg_SetInt {:?}",status);
+      },
+      _ => {},
+    }
+    match queue.spec.maxmsgs {
+      Some(val) => {
+        let c_mm = CString::new("mm").unwrap();
+        tibco_ems_sys::tibemsMapMsg_SetLong(msg, c_mm.as_ptr(), val);
+        println!("tibemsMapMsg_SetInt {:?}",status);
+      },
+      _ => {},
+    }
+    match queue.spec.global {
+      Some(val) => {
+        let c_global = CString::new("global").unwrap();
+        let mut global_flag = tibco_ems_sys::tibems_bool::TIBEMS_FALSE;
+        if val {
+          global_flag = tibco_ems_sys::tibems_bool::TIBEMS_TRUE;
+        }
+        tibco_ems_sys::tibemsMapMsg_SetBoolean(msg, c_global.as_ptr(),  global_flag);
+        println!("tibemsMapMsg_SetInt {:?}",status);
+      },
+      _ => {},
+    }
+
+    //header
+    let c_msg_ext = CString::new("JMS_TIBCO_MSG_EXT").unwrap();
+    tibco_ems_sys::tibemsMsg_SetBooleanProperty(msg, c_msg_ext.as_ptr(), tibco_ems_sys::tibems_bool::TIBEMS_TRUE);  
+    let c_code = CString::new("code").unwrap();
+    let status = tibco_ems_sys::tibemsMsg_SetIntProperty(msg, c_code.as_ptr(), create_destination);
+    println!("tibemsMsg_SetIntProperty {:?}",status);
+    let c_save = CString::new("save").unwrap();
+    tibco_ems_sys::tibemsMsg_SetBooleanProperty(msg, c_save.as_ptr(), tibco_ems_sys::tibems_bool::TIBEMS_TRUE);
+    let c_arseq = CString::new("arseq").unwrap();
+    tibco_ems_sys::tibemsMsg_SetIntProperty(msg, c_arseq.as_ptr(), 1);
+
+    //sending
+    let mut session_pointer: usize = 0;
+    let admin = ems::ADMIN_CONNECTION.lock().unwrap();
+    let status = tibco_ems_sys::tibemsConnection_CreateSession(admin.pointer, &mut session_pointer, tibco_ems_sys::tibems_bool::TIBEMS_FALSE, tibco_ems_sys::tibemsAcknowledgeMode::TIBEMS_AUTO_ACKNOWLEDGE);
+    println!("tibemsConnection_CreateSession {:?}",status);
+    let mut dest:usize = 0;
+    let c_destination = CString::new(admin_queue_name).unwrap();
+    let status = tibco_ems_sys::tibemsDestination_Create(&mut dest, tibco_ems_sys::tibemsDestinationType::TIBEMS_QUEUE, c_destination.as_ptr());
+    println!("tibemsDestination_Create {:?}",status);
+    let mut producer: usize = 0;
+    let status = tibco_ems_sys::tibemsSession_CreateProducer(session_pointer,&mut producer,dest);
+    println!("tibemsSession_CreateProducer {:?}",status);
+    let status = tibco_ems_sys::tibemsMsgProducer_Send(producer, msg);
+    println!("tibemsMsgProducer_Send {:?}",status);
+
+    //closing resources
+    let status = tibco_ems_sys::tibemsMsg_Destroy(msg);
+    println!("tibemsMsg_Destroy {:?}",status);
+    //destroy producer
+    let status = tibco_ems_sys::tibemsMsgProducer_Close(producer);
+    println!("tibemsMsgProducer_Close {:?}",status);
+    //destroy destination
+    let status = tibco_ems_sys::tibemsDestination_Destroy(dest);
+    println!("tibemsDestination_Destroy {:?}",status);
+    let status = tibco_ems_sys::tibemsSession_Close(admin.pointer);
+    println!("tibemsSession_Close {:?}",status);
+  }
   //propagate defaults
   match queue.spec.maxmsgs {
     None => queue.spec.maxmsgs=Some(0),
