@@ -1,5 +1,7 @@
 use kube::{api::{Api, ListParams, Meta}, Client};
 use kube::api::WatchEvent;
+use kube::Service;
+use core::convert::TryFrom;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
@@ -81,7 +83,8 @@ pub async fn watch_bridges() -> Result<()>{
 
 async fn get_bridge_client() -> Api<Bridge>{
   let config = Config::infer().await.unwrap();
-  let client: kube::Client = Client::new(config);
+  let service = Service::try_from(config).unwrap();
+  let client: kube::Client = Client::new(service);
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Bridge> = Api::namespaced(client, &namespace);
   return crds;

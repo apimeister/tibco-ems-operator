@@ -1,5 +1,7 @@
 use kube::{api::{Api, ListParams, Meta, PostParams}, Client};
 use kube::api::WatchEvent;
+use kube::Service;
+use core::convert::TryFrom;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
@@ -67,7 +69,7 @@ pub async fn watch_topics() -> Result<()>{
                   {
                     let mut res = KNOWN_TOPICS.lock().unwrap();
                     match res.get(&topic_name) {
-                      Some(_queue) => info!("topic already known {}", &topic_name),
+                      Some(_queue) => debug!("topic already known {}", &topic_name),
                       None => {
                         info!("adding topic {}", &topic_name);
                         create_topic(&mut topic);
@@ -183,7 +185,8 @@ pub async fn watch_topics_status() -> Result<()>{
 
 async fn get_topic_client() -> Api<Topic>{
   let config = Config::infer().await.unwrap();
-  let client: kube::Client = Client::new(config);
+  let service = Service::try_from(config).unwrap();
+  let client: kube::Client = Client::new(service);
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Topic> = Api::namespaced(client, &namespace);
   return crds;

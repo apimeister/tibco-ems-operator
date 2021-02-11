@@ -9,6 +9,7 @@ use std::ffi::CString;
 use std::ffi::CStr;
 use std::ffi::c_void;
 use tibco_ems_sys::*;
+use tibco_ems::Session;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use env_var::env_var;
@@ -57,32 +58,16 @@ fn init_admin_connection() -> tibemsAdmin{
   admin
 }
 
-pub struct AdminConnection {
-  pub pointer: usize,
-}
-
 pub static TOPIC_ADMIN_CONNECTION: Lazy<Mutex<tibemsAdmin>> = Lazy::new(|| Mutex::new(init_admin_connection()));
 pub static QUEUE_ADMIN_CONNECTION: Lazy<Mutex<tibemsAdmin>> = Lazy::new(|| Mutex::new(init_admin_connection()));
-pub static ADMIN_CONNECTION: Lazy<Mutex<AdminConnection>> = Lazy::new(|| Mutex::new({
+pub static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new({
   let username = env_var!(required "USERNAME");
   let password = env_var!(required "PASSWORD");
   let server_url = env_var!(required "SERVER_URL");
   let admin_server_url = format!("<$admin>:{}",server_url);
-  let c_server_url = CString::new(admin_server_url).unwrap();
-  let c_username = CString::new(username).unwrap();
-  let c_password = CString::new(password).unwrap();
-  let mut admin = AdminConnection{pointer:0};
-  unsafe{
-    let factory = tibco_ems_sys::tibemsConnectionFactory_Create();
-    let status = tibco_ems_sys::tibemsConnectionFactory_SetServerURL(factory, c_server_url.as_ptr());
-    println!("tibemsConnectionFactory_SetServerURL {:?}",status);
-    let status = tibco_ems_sys::tibemsConnectionFactory_CreateConnection(factory,&mut admin.pointer,c_username.as_ptr(),c_password.as_ptr());
-    println!("tibemsConnectionFactory_CreateConnection {:?}",status);
-    let status = tibco_ems_sys::tibemsConnection_Start(admin.pointer);
-    println!("tibemsConnection_Start {:?}",status);
-  }
+  let conn = tibco_ems::connect(&admin_server_url, &username, &password).unwrap();
   info!("creating admin connection");
-  admin
+  conn.session().unwrap()
 }));
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -1,5 +1,6 @@
 use kube::{api::{Api, ListParams, Meta, PostParams}, Client};
 use kube::api::WatchEvent;
+use kube::Service;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
@@ -10,8 +11,12 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use hyper::Result;
 use schemars::JsonSchema;
-use std::ffi::CString;
 use env_var::env_var;
+use core::convert::TryFrom;
+use tibco_ems::MapMessage;
+use tibco_ems::Destination;
+use tibco_ems::DestinationType;
+use tibco_ems::TypedValue;
 
 use crate::ems;
 
@@ -70,7 +75,7 @@ pub async fn watch_queues() -> Result<()>{
                   {
                     let mut res = KNOWN_QUEUES.lock().unwrap();
                     match res.get(&qname) {
-                      Some(_queue) => info!("queue already known {}", &qname),
+                      Some(_queue) => debug!("queue already known {}", &qname),
                       None => {
                         info!("adding queue {}", &qname);
                         create_queue(&mut queue);
@@ -186,7 +191,8 @@ pub async fn watch_queues_status() -> Result<()>{
 
 async fn get_queue_client() -> Api<Queue>{
   let config = Config::infer().await.unwrap();
-  let client: kube::Client = Client::new(config);
+  let service = Service::try_from(config).unwrap();
+  let client: kube::Client = Client::new(service);
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Queue> = Api::namespaced(client, &namespace);
   return crds;
@@ -214,87 +220,50 @@ fn get_obj_name_from_queue(queue: &Queue) -> String {
 
 fn create_queue(queue: &mut Queue){
   let admin_queue_name = "$sys.admin";
-  let create_destination = 18;
+  let _create_destination = 18;
   //create queue map-message
-  let mut msg: usize = 0;
-  unsafe {
-    let status = tibco_ems_sys::tibemsMapMsg_Create(&mut msg);
-    println!("tibemsMapMsg_Create {:?}",status);
-    let c_dn = CString::new("dn".to_string()).unwrap();
-    let destination_name = get_queue_name(queue);
-    let c_destination_name = CString::new(destination_name).unwrap();
-    tibco_ems_sys::tibemsMapMsg_SetString(msg, c_dn.as_ptr(), c_destination_name.as_ptr());
-    println!("tibemsMapMsg_SetString {:?}",status);
-    let c_dt = CString::new("dt".to_string()).unwrap();
-    tibco_ems_sys::tibemsMapMsg_SetInt(msg, c_dt.as_ptr(), 1);
-    println!("tibemsMapMsg_SetInt {:?}",status);
-    match queue.spec.maxbytes {
-      Some(val) => {
-        let c_mb = CString::new("mb").unwrap();
-        tibco_ems_sys::tibemsMapMsg_SetLong(msg, c_mb.as_ptr(), val);
-        println!("tibemsMapMsg_SetInt {:?}",status);
-      },
-      _ => {},
-    }
-    match queue.spec.maxmsgs {
-      Some(val) => {
-        let c_mm = CString::new("mm").unwrap();
-        tibco_ems_sys::tibemsMapMsg_SetLong(msg, c_mm.as_ptr(), val);
-        println!("tibemsMapMsg_SetInt {:?}",status);
-      },
-      _ => {},
-    }
-    match queue.spec.global {
-      Some(val) => {
-        let c_global = CString::new("global").unwrap();
-        let mut global_flag = tibco_ems_sys::tibems_bool::TIBEMS_FALSE;
-        if val {
-          global_flag = tibco_ems_sys::tibems_bool::TIBEMS_TRUE;
-        }
-        tibco_ems_sys::tibemsMapMsg_SetBoolean(msg, c_global.as_ptr(),  global_flag);
-        println!("tibemsMapMsg_SetInt {:?}",status);
-      },
-      _ => {},
-    }
-
-    //header
-    let c_msg_ext = CString::new("JMS_TIBCO_MSG_EXT").unwrap();
-    tibco_ems_sys::tibemsMsg_SetBooleanProperty(msg, c_msg_ext.as_ptr(), tibco_ems_sys::tibems_bool::TIBEMS_TRUE);  
-    let c_code = CString::new("code").unwrap();
-    let status = tibco_ems_sys::tibemsMsg_SetIntProperty(msg, c_code.as_ptr(), create_destination);
-    println!("tibemsMsg_SetIntProperty {:?}",status);
-    let c_save = CString::new("save").unwrap();
-    tibco_ems_sys::tibemsMsg_SetBooleanProperty(msg, c_save.as_ptr(), tibco_ems_sys::tibems_bool::TIBEMS_TRUE);
-    let c_arseq = CString::new("arseq").unwrap();
-    tibco_ems_sys::tibemsMsg_SetIntProperty(msg, c_arseq.as_ptr(), 1);
-
-    //sending
-    let mut session_pointer: usize = 0;
-    let admin = ems::ADMIN_CONNECTION.lock().unwrap();
-    let status = tibco_ems_sys::tibemsConnection_CreateSession(admin.pointer, &mut session_pointer, tibco_ems_sys::tibems_bool::TIBEMS_FALSE, tibco_ems_sys::tibemsAcknowledgeMode::TIBEMS_AUTO_ACKNOWLEDGE);
-    println!("tibemsConnection_CreateSession {:?}",status);
-    let mut dest:usize = 0;
-    let c_destination = CString::new(admin_queue_name).unwrap();
-    let status = tibco_ems_sys::tibemsDestination_Create(&mut dest, tibco_ems_sys::tibemsDestinationType::TIBEMS_QUEUE, c_destination.as_ptr());
-    println!("tibemsDestination_Create {:?}",status);
-    let mut producer: usize = 0;
-    let status = tibco_ems_sys::tibemsSession_CreateProducer(session_pointer,&mut producer,dest);
-    println!("tibemsSession_CreateProducer {:?}",status);
-    let status = tibco_ems_sys::tibemsMsgProducer_Send(producer, msg);
-    println!("tibemsMsgProducer_Send {:?}",status);
-
-    //closing resources
-    let status = tibco_ems_sys::tibemsMsg_Destroy(msg);
-    println!("tibemsMsg_Destroy {:?}",status);
-    //destroy producer
-    let status = tibco_ems_sys::tibemsMsgProducer_Close(producer);
-    println!("tibemsMsgProducer_Close {:?}",status);
-    //destroy destination
-    let status = tibco_ems_sys::tibemsDestination_Destroy(dest);
-    println!("tibemsDestination_Destroy {:?}",status);
-    let status = tibco_ems_sys::tibemsSession_Close(admin.pointer);
-    println!("tibemsSession_Close {:?}",status);
+  let mut msg: MapMessage = Default::default();
+  msg.body.insert("dn".to_string(), TypedValue::string_value(get_queue_name(queue)));
+  msg.body.insert("dt".to_string(),TypedValue::int_value(1));
+  match queue.spec.maxbytes {
+    Some(val) => {
+      msg.body.insert("mb".to_string(), TypedValue::long_value(val));
+    },
+    _ => {},
   }
+  match queue.spec.maxmsgs {
+    Some(val) => {
+      msg.body.insert("mm".to_string(), TypedValue::long_value(val));
+    },
+    _ => {},
+  }
+  match queue.spec.global {
+    Some(val) => {
+      msg.body.insert("global".to_string(), TypedValue::bool_value(val));
+    },
+    _ => {},
+  }
+
+  //header
+  let mut header: HashMap<String,TypedValue> = HashMap::new();
+  //actual boolean
+  header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
+  //18 means create destination
+  header.insert("code".to_string(),TypedValue::int_value(18));
+  header.insert("save".to_string(),TypedValue::bool_value(true));
+  header.insert("arseq".to_string(),TypedValue::int_value(1));
+
+  msg.header = Some(header);
+
+  let admin_session = ems::ADMIN_CONNECTION.lock().unwrap();
+
+  let dest = Destination{
+    destination_type: DestinationType::Queue,
+    destination_name: admin_queue_name.to_string(),
+  };
+  let result = admin_session.send_message(dest, msg.into());
+  println!("{:?}",result);
+
   //propagate defaults
   match queue.spec.maxmsgs {
     None => queue.spec.maxmsgs=Some(0),
