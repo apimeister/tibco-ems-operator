@@ -13,6 +13,10 @@ use once_cell::sync::Lazy;
 use hyper::Result;
 use schemars::JsonSchema;
 use env_var::env_var;
+use tibco_ems::MapMessage;
+use tibco_ems::TypedValue;
+use tibco_ems::Destination;
+use tibco_ems::DestinationType;
 
 use crate::ems;
 
@@ -26,8 +30,8 @@ pub struct TopicSpec {
   pub name: Option<String>,
   pub expiration: Option<u32>,
   pub global: Option<bool>,
-  pub maxbytes: Option<u32>,
-  pub maxmsgs: Option<u32>,
+  pub maxbytes: Option<i64>,
+  pub maxmsgs: Option<i64>,
   pub overflowPolicy: Option<u8>,
   pub prefetch: Option<u32>,
 }
@@ -94,7 +98,7 @@ pub async fn watch_topics() -> Result<()>{
                   if do_not_delete == "TRUE" {
                     warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",tname);
                   }else{
-                    delete_topic(topic);
+                    delete_topic(&topic);
                   }                  
                 },
                 WatchEvent::Error(e) => {
@@ -167,7 +171,7 @@ pub async fn watch_topics_status() -> Result<()>{
       match t {
         Some(mut local_topic) => {
           let obj_name = get_obj_name_from_topic(&local_topic);
-          info!("updating topic status for {}",obj_name);
+          debug!("updating topic status for {}",obj_name);
           let updater: Api<Topic> = get_topic_client().await;
           let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
           local_topic.metadata.resource_version=Meta::resource_ver(&latest_topic);
@@ -219,10 +223,56 @@ fn get_obj_name_from_topic(topic: &Topic) -> String {
 }
 
 fn create_topic(topic: &mut  Topic){
-  let topic_name = get_topic_name(topic);
-  let script = "create topic ".to_owned()+&topic_name;
-  info!("script: {}",script);
-  let _result = ems::run_tibems_script(script);
+  let command_create_destination = 18;
+  let admin_queue_name = "$sys.admin";
+  let tname = get_topic_name(topic);
+  //create topic map-message
+  let mut msg: MapMessage = Default::default();
+  msg.body.insert("dn".to_string(), TypedValue::string_value(tname.clone()));
+  msg.body.insert("dt".to_string(),TypedValue::int_value(1));
+  match topic.spec.maxbytes {
+    Some(val) => {
+      msg.body.insert("mb".to_string(), TypedValue::long_value(val));
+    },
+    _ => {},
+  }
+  match topic.spec.maxmsgs {
+    Some(val) => {
+      msg.body.insert("mm".to_string(), TypedValue::long_value(val));
+    },
+    _ => {},
+  }
+  match topic.spec.global {
+    Some(val) => {
+      msg.body.insert("global".to_string(), TypedValue::bool_value(val));
+    },
+    _ => {},
+  }
+
+  //header
+  let mut header: HashMap<String,TypedValue> = HashMap::new();
+  //actual boolean
+  header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
+  header.insert("code".to_string(),TypedValue::int_value(command_create_destination));
+  header.insert("save".to_string(),TypedValue::bool_value(true));
+  header.insert("arseq".to_string(),TypedValue::int_value(1));
+
+  msg.header = Some(header);
+
+  let admin_session = ems::ADMIN_CONNECTION.lock().unwrap();
+
+  let dest = Destination{
+    destination_type: DestinationType::Queue,
+    destination_name: admin_queue_name.to_string(),
+  };
+  let result = admin_session.send_message(dest, msg.into());
+  match result {
+    Ok(_) => {},
+    Err(err) => {
+      error!("error while creating topic {}: {}",tname,err);
+    },
+  }
+
   //propagate defaults
   match topic.spec.maxmsgs {
     None => topic.spec.maxmsgs=Some(0),
@@ -240,9 +290,35 @@ fn create_topic(topic: &mut  Topic){
   topic.status =  Some(status);
 }
 
-fn delete_topic(topic: Topic){
-  let topic_name = get_topic_name(&topic);
-  let script = "delete topic ".to_owned()+&topic_name+&"\n";
-  info!("script: {}",script);
-  let _result = ems::run_tibems_script(script);
+fn delete_topic(topic: &Topic){
+  let command_delete_destination = 16;
+  let admin_queue_name = "$sys.admin";
+  let tname = get_topic_name(topic);
+  info!("deleting topic {}", tname);
+  //create queue map-message
+  let mut msg: MapMessage = Default::default();
+  msg.body.insert("dn".to_string(), TypedValue::string_value(tname.clone()));
+  //header
+  let mut header: HashMap<String,TypedValue> = HashMap::new();
+  //actual boolean
+  header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
+  header.insert("code".to_string(),TypedValue::int_value(command_delete_destination));
+  header.insert("save".to_string(),TypedValue::bool_value(true));
+  header.insert("arseq".to_string(),TypedValue::int_value(1));
+
+  msg.header = Some(header);
+
+  let admin_session = ems::ADMIN_CONNECTION.lock().unwrap();
+
+  let dest = Destination{
+    destination_type: DestinationType::Queue,
+    destination_name: admin_queue_name.to_string(),
+  };
+  let result = admin_session.send_message(dest, msg.into());
+  match result {
+    Ok(_) => {},
+    Err(err) => {
+      error!("error while deleting topic {}: {}",tname,err);
+    }
+  }
 }

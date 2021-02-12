@@ -26,10 +26,10 @@ spec:
                   type: boolean
                 maxbytes:
                   type: integer
-                  format: int32
+                  format: int64
                 maxmsgs:
                   type: integer
-                  format: int32
+                  format: int64
                 overflowPolicy:
                   type: integer
                   format: int32

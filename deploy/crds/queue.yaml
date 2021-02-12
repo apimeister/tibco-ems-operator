@@ -26,10 +26,10 @@ spec:
                   format: int32
                 maxbytes:
                   type: integer
-                  format: int32
+                  format: int64
                 maxmsgs:
                   type: integer
-                  format: int32
+                  format: int64
                 maxRedelivery:
                   type: integer
                   format: int32

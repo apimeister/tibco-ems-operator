@@ -98,9 +98,9 @@ pub async fn watch_queues() -> Result<()>{
                   let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
                   let qname = get_queue_name(&queue);
                   if do_not_delete == "TRUE" {
-                    warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",qname);
+                    warn!("delete queue {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",qname);
                   }else{
-                    delete_queue(queue.clone());
+                    delete_queue(&queue);
                   }
                   let mut res = KNOWN_QUEUES.lock().unwrap();
                   res.remove(&qname);           
@@ -172,7 +172,7 @@ pub async fn watch_queues_status() -> Result<()>{
       match q {
         Some(mut local_q) => {
           let obj_name = get_obj_name_from_queue(&local_q);
-          info!("updating queue status for {}",obj_name);
+          debug!("updating queue status for {}",obj_name);
           let updater: Api<Queue> = get_queue_client().await;
           let latest_queue: Queue = updater.get(&obj_name).await.unwrap();
           local_q.metadata.resource_version=Meta::resource_ver(&latest_queue);
@@ -224,11 +224,12 @@ fn get_obj_name_from_queue(queue: &Queue) -> String {
 }
 
 fn create_queue(queue: &mut Queue){
+  let command_create_destination = 18;
   let admin_queue_name = "$sys.admin";
-  let _create_destination = 18;
+  let qname = get_queue_name(queue);
   //create queue map-message
   let mut msg: MapMessage = Default::default();
-  msg.body.insert("dn".to_string(), TypedValue::string_value(get_queue_name(queue)));
+  msg.body.insert("dn".to_string(), TypedValue::string_value(qname.clone()));
   msg.body.insert("dt".to_string(),TypedValue::int_value(1));
   match queue.spec.maxbytes {
     Some(val) => {
@@ -253,8 +254,7 @@ fn create_queue(queue: &mut Queue){
   let mut header: HashMap<String,TypedValue> = HashMap::new();
   //actual boolean
   header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
-  //18 means create destination
-  header.insert("code".to_string(),TypedValue::int_value(18));
+  header.insert("code".to_string(),TypedValue::int_value(command_create_destination));
   header.insert("save".to_string(),TypedValue::bool_value(true));
   header.insert("arseq".to_string(),TypedValue::int_value(1));
 
@@ -267,8 +267,12 @@ fn create_queue(queue: &mut Queue){
     destination_name: admin_queue_name.to_string(),
   };
   let result = admin_session.send_message(dest, msg.into());
-  println!("{:?}",result);
-
+  match result {
+    Ok(_) => {},
+    Err(err) => {
+      error!("error while creating queue {}: {}",qname,err);
+    }
+  }
   //propagate defaults
   match queue.spec.maxmsgs {
     None => queue.spec.maxmsgs=Some(0),
@@ -288,9 +292,35 @@ fn create_queue(queue: &mut Queue){
   queue.status =  Some(status);
 }
 
-fn delete_queue(queue: Queue){
-  let queue_name = get_queue_name(&queue);
-  info!("deleting queue {}", queue_name);
-  let script = "delete queue ".to_owned()+&queue_name+"\n";
-  let _result = ems::run_tibems_script(script);
+fn delete_queue(queue: &Queue){
+  let command_delete_destination = 16;
+  let admin_queue_name = "$sys.admin";
+  let qname = get_queue_name(queue);
+  info!("deleting queue {}", qname);
+  //create queue map-message
+  let mut msg: MapMessage = Default::default();
+  msg.body.insert("dn".to_string(), TypedValue::string_value(qname.clone()));
+  //header
+  let mut header: HashMap<String,TypedValue> = HashMap::new();
+  //actual boolean
+  header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
+  header.insert("code".to_string(),TypedValue::int_value(command_delete_destination));
+  header.insert("save".to_string(),TypedValue::bool_value(true));
+  header.insert("arseq".to_string(),TypedValue::int_value(1));
+
+  msg.header = Some(header);
+
+  let admin_session = ems::ADMIN_CONNECTION.lock().unwrap();
+
+  let dest = Destination{
+    destination_type: DestinationType::Queue,
+    destination_name: admin_queue_name.to_string(),
+  };
+  let result = admin_session.send_message(dest, msg.into());
+  match result {
+    Ok(_) => {},
+    Err(err) => {
+      error!("error while deleting queue {}: {}",qname,err);
+    }
+  }
 }

@@ -1,10 +1,6 @@
-use std::process::Command;
 use std::env;
-use std::fs::File;
 use std::time::Instant;
-use std::time::SystemTime;
 use serde::{Serialize, Deserialize};
-use std::io::prelude::*;
 use std::ffi::CString;
 use std::ffi::CStr;
 use std::ffi::c_void;
@@ -285,32 +281,4 @@ pub fn get_topic_stats() -> Vec<TopicInfo> {
   let duration = start.elapsed();
   debug!("{{\"topic_stats_duration_ms\": {} }}", duration.as_millis());
   return result;
-}
-
-pub fn run_tibems_script(script: String) -> String{
-  let start = Instant::now();
-  let sys_time = SystemTime::now();
-  let sys_millis = sys_time.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
-  let filename = format!("/tmp/{}.script",sys_millis);
-  let mut file = File::create(&filename).unwrap();
-  file.write_all(&script.into_bytes()).unwrap();
-  let username = env_var!(required "USERNAME");
-  let password = env_var!(required "PASSWORD");
-  let server_url = env_var!(required "SERVER_URL");
-  let p = Command::new("/opt/tibco/ems/8.5/bin/tibemsadmin")
-      .arg("-user")
-      .arg(username)
-      .arg("-password")
-      .arg(password)
-      .arg("-server")
-      .arg(server_url)
-      .arg("-script")
-      .arg(&filename)
-      .output().unwrap();
-  let w = p.stdout;
-  let x = String::from_utf8(w).unwrap();
-  let _ignore = std::fs::remove_file(filename);
-  let duration = start.elapsed();
-  info!("run_tibems_script took: {:?}", duration);
-  return x;
 }
