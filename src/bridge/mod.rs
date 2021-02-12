@@ -54,8 +54,13 @@ pub async fn watch_bridges() -> Result<()>{
                 }
                 WatchEvent::Deleted(bridge) => {
                   let ver = Meta::resource_ver(&bridge).unwrap();
-                  info!("Deleted {}@{}", Meta::name(&bridge), &ver);
-                  delete_bridge(bridge);
+                  let bname = Meta::name(&bridge);
+                  let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+                  if do_not_delete == "TRUE" {
+                    warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",bname);
+                  }else{
+                    delete_bridge(bridge);
+                  }
                   last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
                 },
                 WatchEvent::Error(e) => {

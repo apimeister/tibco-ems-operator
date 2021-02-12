@@ -89,7 +89,13 @@ pub async fn watch_topics() -> Result<()>{
                   };
                 },
                 WatchEvent::Deleted(topic) =>{
-                  delete_topic(topic);
+                  let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+                  let tname = get_topic_name(&topic);
+                  if do_not_delete == "TRUE" {
+                    warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",tname);
+                  }else{
+                    delete_topic(topic);
+                  }                  
                 },
                 WatchEvent::Error(e) => {
                   error!("Error {}", e);

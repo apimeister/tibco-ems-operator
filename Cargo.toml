@@ -19,6 +19,6 @@ once_cell = "1.5"
 hyper = { version = "0.14", features = ["full"] }
 log = "0.4"
 env_logger = "0.8"
-tibco_ems = "0.2.2"
-tibco_ems-sys = "0.1.9"
+tibco_ems = "0.2.3"
+tibco_ems-sys = "0.1.10"
 env-var = "1"

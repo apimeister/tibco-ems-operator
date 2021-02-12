@@ -95,9 +95,14 @@ pub async fn watch_queues() -> Result<()>{
                   };
                 },
                 WatchEvent::Deleted(queue) =>{
-                  delete_queue(queue.clone());
-                  let mut res = KNOWN_QUEUES.lock().unwrap();
+                  let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
                   let qname = get_queue_name(&queue);
+                  if do_not_delete == "TRUE" {
+                    warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",qname);
+                  }else{
+                    delete_queue(queue.clone());
+                  }
+                  let mut res = KNOWN_QUEUES.lock().unwrap();
                   res.remove(&qname);           
                 },
                 WatchEvent::Error(e) => {
