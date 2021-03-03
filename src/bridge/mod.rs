@@ -40,73 +40,81 @@ pub async fn watch_bridges() -> Result<()>{
   info!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
   loop{
     debug!("B: new loop iteration with offset {}",last_version);
-    let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
-    loop {
-      debug!("B: new stream item");
-      let stream_result = stream.try_next().await;
-      match stream_result {
-        Ok(status_obj) => {
-          match status_obj {
-            Some(status) => {
-              match status {
-                WatchEvent::Added(bridge) => {
-                  let ver = Meta::resource_ver(&bridge).unwrap();
-                  let bname = Meta::name(&bridge);
-                  {
-                    let mut res = KNOWN_BRIDGES.lock().unwrap();
-                    match res.get(&bname) {
-                      Some(_bridge) => debug!("bridge already known {}", &bname),
-                      None => {
-                        info!("Added {}@{}", bname, &ver);
-                        create_bridge(&bridge);
-                        last_version = (ver.parse::<i64>().unwrap() + 1).to_string(); 
-                        let b = bridge.clone();
-                        let n = bname.clone();
-                        res.insert(n, b);
-                      },
+    let watch_result = crds.watch(&lp, &last_version).await;
+    match watch_result {
+      Ok(str_result) => {
+        let mut stream = str_result.boxed();
+        loop {
+          debug!("B: new stream item");
+          let stream_result = stream.try_next().await;
+          match stream_result {
+            Ok(status_obj) => {
+              match status_obj {
+                Some(status) => {
+                  match status {
+                    WatchEvent::Added(bridge) => {
+                      let ver = Meta::resource_ver(&bridge).unwrap();
+                      let bname = Meta::name(&bridge);
+                      {
+                        let mut res = KNOWN_BRIDGES.lock().unwrap();
+                        match res.get(&bname) {
+                          Some(_bridge) => debug!("bridge already known {}", &bname),
+                          None => {
+                            info!("Added {}@{}", bname, &ver);
+                            create_bridge(&bridge);
+                            last_version = (ver.parse::<i64>().unwrap() + 1).to_string(); 
+                            let b = bridge.clone();
+                            let n = bname.clone();
+                            res.insert(n, b);
+                          },
+                        }
+                      }
+                    },
+                    WatchEvent::Modified(bridge) => {
+                      let ver = Meta::resource_ver(&bridge).unwrap();
+                      info!("Modified {}@{}", Meta::name(&bridge), &ver);
+                      create_bridge(&bridge);
+                      last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
                     }
-                  }
+                    WatchEvent::Deleted(bridge) => {
+                      let ver = Meta::resource_ver(&bridge).unwrap();
+                      let bname = Meta::name(&bridge);
+                      let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+                      if do_not_delete == "TRUE" {
+                        warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",bname);
+                      }else{
+                        delete_bridge(&bridge);
+                      }
+                      last_version = (ver.parse::<i64>().unwrap() + 1).to_string();   
+                      let mut res = KNOWN_BRIDGES.lock().unwrap();
+                      res.remove(&bname);                    
+                    },
+                    WatchEvent::Error(e) => {
+                      if e.code == 410 && e.reason == "Expired" {
+                        last_version="0".to_owned();
+                      }else{
+                        error!("Error: {}", e);
+                        last_version="0".to_owned();
+                      }
+                    },
+                    _ => {}
+                  };
                 },
-                WatchEvent::Modified(bridge) => {
-                  let ver = Meta::resource_ver(&bridge).unwrap();
-                  info!("Modified {}@{}", Meta::name(&bridge), &ver);
-                  create_bridge(&bridge);
-                  last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+                None => {
+                  debug!("B: request loop returned empty");  
+                  break;
                 }
-                WatchEvent::Deleted(bridge) => {
-                  let ver = Meta::resource_ver(&bridge).unwrap();
-                  let bname = Meta::name(&bridge);
-                  let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-                  if do_not_delete == "TRUE" {
-                    warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",bname);
-                  }else{
-                    delete_bridge(&bridge);
-                  }
-                  last_version = (ver.parse::<i64>().unwrap() + 1).to_string();   
-                  let mut res = KNOWN_BRIDGES.lock().unwrap();
-                  res.remove(&bname);                    
-                },
-                WatchEvent::Error(e) => {
-                  if e.code == 410 && e.reason == "Expired" {
-                    last_version="0".to_owned();
-                  }else{
-                    error!("Error: {}", e);
-                    last_version="0".to_owned();
-                  }
-                },
-                _ => {}
-              };
+              }
             },
-            None => {
-              debug!("B: request loop returned empty");  
+            Err(err) => {
+              debug!("B: error on request loop {:?}",err);  
               break;
             }
           }
-        },
-        Err(err) => {
-          debug!("B: error on request loop {:?}",err);  
-          break;
         }
+      },
+      Err(_err) => {
+        //ignore connection reset
       }
     }
   }

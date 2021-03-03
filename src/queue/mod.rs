@@ -60,69 +60,77 @@ pub async fn watch_queues() -> Result<()>{
   info!("subscribing events of type queues.tibcoems.apimeister.com/v1");
   loop{
     debug!("Q: new loop iteration with offset {}",last_version);
-    let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
-    loop {
-      debug!("Q: new stream item");
-      let stream_result = stream.try_next().await;
-      match stream_result {
-        Ok(status_obj) => {
-          match status_obj {
-            Some(status) => {
-              match status {
-                WatchEvent::Added(mut queue) =>{
-                  let qname = get_queue_name(&queue);
-                  let name = Meta::name(&queue);
-                  {
-                    let mut res = KNOWN_QUEUES.lock().unwrap();
-                    match res.get(&qname) {
-                      Some(_queue) => debug!("queue already known {}", &qname),
-                      None => {
-                        info!("adding queue {}", &qname);
-                        create_queue(&mut queue);
-                        let q = (&queue).clone();
-                        let n = (&qname).to_string();
-                        res.insert(n, q);
-                      },
-                    }
-                  }
-                  match queue.status {
-                    None =>{
-                      let q_json = serde_json::to_string(&queue).unwrap();
-                      let pp = PostParams::default();
-                      let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+    let watch_result = crds.watch(&lp, &last_version).await;
+    match watch_result {
+      Ok(str_result) => {
+        let mut stream = str_result.boxed();
+        loop {
+          debug!("Q: new stream item");
+          let stream_result = stream.try_next().await;
+          match stream_result {
+            Ok(status_obj) => {
+              match status_obj {
+                Some(status) => {
+                  match status {
+                    WatchEvent::Added(mut queue) =>{
+                      let qname = get_queue_name(&queue);
+                      let name = Meta::name(&queue);
+                      {
+                        let mut res = KNOWN_QUEUES.lock().unwrap();
+                        match res.get(&qname) {
+                          Some(_queue) => debug!("queue already known {}", &qname),
+                          None => {
+                            info!("adding queue {}", &qname);
+                            create_queue(&mut queue);
+                            let q = (&queue).clone();
+                            let n = (&qname).to_string();
+                            res.insert(n, q);
+                          },
+                        }
+                      }
+                      match queue.status {
+                        None =>{
+                          let q_json = serde_json::to_string(&queue).unwrap();
+                          let pp = PostParams::default();
+                          let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+                        },
+                        _ => {},
+                      };
+                    },
+                    WatchEvent::Deleted(queue) =>{
+                      let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+                      let qname = get_queue_name(&queue);
+                      if do_not_delete == "TRUE" {
+                        warn!("delete queue {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",qname);
+                      }else{
+                        delete_queue(&queue);
+                      }
+                      let mut res = KNOWN_QUEUES.lock().unwrap();
+                      res.remove(&qname);           
+                    },
+                    WatchEvent::Error(e) => {
+                      error!("Error {}", e);
+                      error!("resetting offset to 0");
+                      last_version="0".to_owned();
                     },
                     _ => {},
                   };
                 },
-                WatchEvent::Deleted(queue) =>{
-                  let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-                  let qname = get_queue_name(&queue);
-                  if do_not_delete == "TRUE" {
-                    warn!("delete queue {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",qname);
-                  }else{
-                    delete_queue(&queue);
-                  }
-                  let mut res = KNOWN_QUEUES.lock().unwrap();
-                  res.remove(&qname);           
-                },
-                WatchEvent::Error(e) => {
-                  error!("Error {}", e);
-                  error!("resetting offset to 0");
-                  last_version="0".to_owned();
-                },
-                _ => {},
-              };
+                None => {
+                  debug!("Q: request loop returned empty");  
+                  break;
+                }
+              }
             },
-            None => {
-              debug!("Q: request loop returned empty");  
+            Err(err) => {
+              debug!("Q: error on request loop {:?}",err);  
               break;
             }
           }
-        },
-        Err(err) => {
-          debug!("Q: error on request loop {:?}",err);  
-          break;
         }
+      },
+      Err(_err) => {
+        //ignore connection reset
       }
     }
   }

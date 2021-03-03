@@ -58,67 +58,75 @@ pub async fn watch_topics() -> Result<()>{
   info!("subscribing events of type topics.tibcoems.apimeister.com/v1");
   loop{
     debug!("T: new loop iteration with offset {}",last_version);
-    let mut stream = crds.watch(&lp, &last_version).await.unwrap().boxed();
-    loop {
-      debug!("T: new stream item");
-      let stream_result = stream.try_next().await;
-      match stream_result {
-        Ok(status_obj) => {
-          match status_obj {
-            Some(status) => {
-              match status {
-                WatchEvent::Added(mut topic) =>{
-                  let topic_name = get_topic_name(&topic);
-                  let name = Meta::name(&topic);
-                  {
-                    let mut res = KNOWN_TOPICS.lock().unwrap();
-                    match res.get(&topic_name) {
-                      Some(_queue) => debug!("topic already known {}", &topic_name),
-                      None => {
-                        info!("adding topic {}", &topic_name);
-                        create_topic(&mut topic);
-                        let q = (&topic).clone();
-                        let n = (&topic_name).clone();
-                        res.insert(n, q);
-                      },
-                    }
-                  }
-                  match topic.status {
-                    None =>{
-                      let q_json = serde_json::to_string(&topic).unwrap();
-                      let pp = PostParams::default();
-                      let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+    let watch_result = crds.watch(&lp, &last_version).await;
+    match watch_result {
+      Ok(str_result) => {
+        let mut stream = str_result.boxed();
+        loop {
+          debug!("T: new stream item");
+          let stream_result = stream.try_next().await;
+          match stream_result {
+            Ok(status_obj) => {
+              match status_obj {
+                Some(status) => {
+                  match status {
+                    WatchEvent::Added(mut topic) =>{
+                      let topic_name = get_topic_name(&topic);
+                      let name = Meta::name(&topic);
+                      {
+                        let mut res = KNOWN_TOPICS.lock().unwrap();
+                        match res.get(&topic_name) {
+                          Some(_queue) => debug!("topic already known {}", &topic_name),
+                          None => {
+                            info!("adding topic {}", &topic_name);
+                            create_topic(&mut topic);
+                            let q = (&topic).clone();
+                            let n = (&topic_name).clone();
+                            res.insert(n, q);
+                          },
+                        }
+                      }
+                      match topic.status {
+                        None =>{
+                          let q_json = serde_json::to_string(&topic).unwrap();
+                          let pp = PostParams::default();
+                          let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+                        },
+                        _ => {},
+                      };
+                    },
+                    WatchEvent::Deleted(topic) =>{
+                      let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+                      let tname = get_topic_name(&topic);
+                      if do_not_delete == "TRUE" {
+                        warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",tname);
+                      }else{
+                        delete_topic(&topic);
+                      }                  
+                    },
+                    WatchEvent::Error(e) => {
+                      error!("Error {}", e);
+                      error!("resetting offset to 0");
+                      last_version="0".to_owned();
                     },
                     _ => {},
                   };
                 },
-                WatchEvent::Deleted(topic) =>{
-                  let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-                  let tname = get_topic_name(&topic);
-                  if do_not_delete == "TRUE" {
-                    warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",tname);
-                  }else{
-                    delete_topic(&topic);
-                  }                  
-                },
-                WatchEvent::Error(e) => {
-                  error!("Error {}", e);
-                  error!("resetting offset to 0");
-                  last_version="0".to_owned();
-                },
-                _ => {},
-              };
+                None => {
+                  debug!("T: request loop returned empty");  
+                  break;
+                }
+              }
             },
-            None => {
-              debug!("T: request loop returned empty");  
+            Err(err) => {
+              debug!("T: error on request loop {:?}",err);  
               break;
             }
           }
-        },
-        Err(err) => {
-          debug!("T: error on request loop {:?}",err);  
-          break;
         }
+      },
+      Err(_err) => {
+        //ignore connection reset
       }
     }
   }
