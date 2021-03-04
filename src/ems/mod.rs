@@ -67,6 +67,7 @@ pub static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new({
 }));
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueInfo{
   pub queue_name: String,
   pub pending_messages: i64,
@@ -74,6 +75,7 @@ pub struct QueueInfo{
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TopicInfo{
   pub topic_name: String,
   pub pending_messages: i64,
