@@ -77,6 +77,12 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
         json_string = serde_json::to_string(all_queues).unwrap();
       } else {
         //get single queue
+        let queue_info = &mut ems::QueueInfo{
+          queue_name: queue_name.to_string(),
+          pending_messages: 0,
+          consumers: 0,
+        };
+        json_string = serde_json::to_string(queue_info).unwrap();
         {
           let c_map = queue::QUEUES.lock().unwrap();
           for key in c_map.keys() {
@@ -121,8 +127,15 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
             }
           }
           json_string = serde_json::to_string(all_topics).unwrap();
-        } else {  
+        } else {
           //get single topic 
+          let topic_info = &mut ems::TopicInfo{
+            topic_name: topic_name.to_string(),
+            pending_messages: 0,
+            subscribers: 0,
+            durables: 0,
+          };
+          json_string = serde_json::to_string(topic_info).unwrap();
           {
             let c_map = topic::TOPICS.lock().unwrap();
             for key in c_map.keys() {
