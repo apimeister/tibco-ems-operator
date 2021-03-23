@@ -240,7 +240,7 @@ fn create_topic(topic: &mut  Topic){
   //create topic map-message
   let mut msg: MapMessage = Default::default();
   msg.body.insert("dn".to_string(), TypedValue::string_value(tname.clone()));
-  msg.body.insert("dt".to_string(),TypedValue::int_value(1));
+  msg.body.insert("dt".to_string(),TypedValue::int_value(2));
   match topic.spec.maxbytes {
     Some(val) => {
       msg.body.insert("mb".to_string(), TypedValue::long_value(val));
