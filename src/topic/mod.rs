@@ -134,6 +134,7 @@ pub async fn watch_topics() -> Result<()>{
 
 pub async fn watch_topics_status() -> Result<()>{
   let status_refresh_in_ms: u64 = env_var!(optional "STATUS_REFRESH_IN_MS", default: "10000").parse().unwrap();
+  let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
   let mut interval = time::interval(Duration::from_millis(status_refresh_in_ms));
   loop {
     let result = ems::get_topic_stats();
@@ -144,57 +145,59 @@ pub async fn watch_topics_status() -> Result<()>{
         c_map.insert(tinfo.topic_name.clone(),tinfo.clone());
       }
       //update k8s state
-      let mut t : Option<Topic> = None;
-      {
-        let mut res = KNOWN_TOPICS.lock().unwrap();
-        match res.get(&tinfo.topic_name) {
-          Some(topic) =>{
-            let mut local_t = topic.clone();
-            match &topic.status {
-              Some(status) => {
-                if status.pendingMessages != tinfo.pending_messages
-                  || status.subscribers != tinfo.subscribers
-                  || status.durables != tinfo.durables {
+      if read_only == "FALSE" {
+        let mut t : Option<Topic> = None;
+        {
+          let mut res = KNOWN_TOPICS.lock().unwrap();
+          match res.get(&tinfo.topic_name) {
+            Some(topic) =>{
+              let mut local_t = topic.clone();
+              match &topic.status {
+                Some(status) => {
+                  if status.pendingMessages != tinfo.pending_messages
+                    || status.subscribers != tinfo.subscribers
+                    || status.durables != tinfo.durables {
+                    local_t.status = Some(TopicStatus{
+                        pendingMessages: tinfo.pending_messages,
+                        subscribers: tinfo.subscribers,
+                        durables: tinfo.durables });
+                    t = Some(local_t.clone());  
+                    res.insert(tinfo.topic_name.to_owned(),local_t);
+                  }
+                },
+                None => {
                   local_t.status = Some(TopicStatus{
-                      pendingMessages: tinfo.pending_messages,
-                      subscribers: tinfo.subscribers,
-                      durables: tinfo.durables });
+                    pendingMessages: tinfo.pending_messages,
+                    subscribers: tinfo.subscribers,
+                    durables: tinfo.durables});
                   t = Some(local_t.clone());  
                   res.insert(tinfo.topic_name.to_owned(),local_t);
-                }
-              },
-              None => {
-                local_t.status = Some(TopicStatus{
-                  pendingMessages: tinfo.pending_messages,
-                  subscribers: tinfo.subscribers,
-                  durables: tinfo.durables});
-                t = Some(local_t.clone());  
-                res.insert(tinfo.topic_name.to_owned(),local_t);
+                },
+              }
+            },
+            None => {},
+          }
+        }
+        match t {
+          Some(mut local_topic) => {
+            let obj_name = get_obj_name_from_topic(&local_topic);
+            debug!("updating topic status for {}",obj_name);
+            let updater: Api<Topic> = get_topic_client().await;
+            let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
+            local_topic.metadata.resource_version=Meta::resource_ver(&latest_topic);
+            let q_json = serde_json::to_string(&local_topic).unwrap();
+            let pp = PostParams::default();
+            let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
+            match result {
+              Ok(_ignore) => {},
+              Err(err) => {
+                error!("error while updating topic object");
+                error!("{:?}",err);
               },
             }
           },
           None => {},
         }
-      }
-      match t {
-        Some(mut local_topic) => {
-          let obj_name = get_obj_name_from_topic(&local_topic);
-          debug!("updating topic status for {}",obj_name);
-          let updater: Api<Topic> = get_topic_client().await;
-          let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
-          local_topic.metadata.resource_version=Meta::resource_ver(&latest_topic);
-          let q_json = serde_json::to_string(&local_topic).unwrap();
-          let pp = PostParams::default();
-          let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
-          match result {
-            Ok(_ignore) => {},
-            Err(err) => {
-              error!("error while updating topic object");
-              error!("{:?}",err);
-            },
-          }
-        },
-        None => {},
       }
     }
     interval.tick().await;

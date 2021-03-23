@@ -9,9 +9,12 @@ mod bridge;
 
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate env_var;
 
 async fn respond(req: Request<Body>) -> Result<Response<Body>> {
   let uri = req.uri().path();
+  trace!("{} {}",req.method(),uri);
   if uri == "/metrics" {
     let mut body = "".to_owned();
     body.push_str("# TYPE Q:pendingMessages gauge\n");
@@ -52,8 +55,31 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
   } else {
     if uri.starts_with("/queue/"){
       let queue_name = uri.strip_prefix("/queue/").unwrap();
-      let mut json_string = "".to_string();
-      if queue_name.contains("|") {
+      let mut json_string;
+      if queue_name.contains("%7C") {
+        //escaped pipe character
+        //multiple queues
+        let queue_list = queue_name.split("%7C");
+        let all_queues = &mut ems::QueueInfo{
+          queue_name: "mixed".to_string(),
+          pending_messages: 0,
+          consumers: 0,
+        };
+        //get queues 
+        {
+          let c_map = queue::QUEUES.lock().unwrap();
+          for key in c_map.keys() {
+            let qinfo = c_map.get(key).unwrap();
+            queue_list.clone().by_ref().for_each(|e| {
+              if &qinfo.queue_name == e {
+                all_queues.pending_messages += qinfo.pending_messages;
+                all_queues.consumers += qinfo.consumers;
+              }
+            });
+          }
+        }
+        json_string = serde_json::to_string(all_queues).unwrap();
+      } else if queue_name.contains("|") {
         //multiple queues
         let queue_list = queue_name.split("|");
         let all_queues = &mut ems::QueueInfo{
@@ -102,7 +128,7 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
     } else {
       if uri.starts_with("/topic/") {
         let topic_name = uri.strip_prefix("/topic/").unwrap();
-        let mut json_string = "".to_string();
+        let mut json_string;
         if topic_name.contains("|") {
           //multiple topics
           let topic_list = topic_name.split("|");
@@ -173,11 +199,14 @@ async fn main() {
     .init();
   info!("starting tibco-ems-operator");
 
-  //watch custom resource objects
-  let _ignore = tokio::spawn(queue::watch_queues());
-  let _ignore = tokio::spawn(topic::watch_topics());
-  let _ignore = tokio::spawn(bridge::watch_bridges());
-
+  let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
+  if read_only == "FALSE" {
+    //watch custom resource objects
+    let _ignore = tokio::spawn(queue::watch_queues());
+    let _ignore = tokio::spawn(topic::watch_topics());
+    let _ignore = tokio::spawn(bridge::watch_bridges());
+  }
+  
   //watch object statistics
   let _ignore = tokio::spawn(queue::watch_queues_status());
   let _ignore = tokio::spawn(topic::watch_topics_status());
