@@ -7,16 +7,14 @@ RUN tar xzf TIB_ems-ce_8.6.0/tar/TIB_ems-ce_8.6.0_linux_x86_64-thirdparty.tar.gz
 
 FROM rust as builder
 WORKDIR /app
-ENV EMS_HOME=/opt/tibco/ems/8.6
 COPY Cargo.toml .
 COPY src ./src
-COPY --from=emslibs /opt /opt
+COPY --from=emslibs /opt/tibco/ems/8.6/lib/libtibems.so /lib64/libtibems.so
 RUN cargo install --path .
 
 # Bundle Stage
 FROM centos as final
-COPY --from=emslibs /opt /opt
-ENV LD_LIBRARY_PATH=/opt/tibco/ems/8.6/lib
+COPY --from=emslibs /opt/tibco/ems/8.6/lib/libtibems.so /lib64/libtibems.so
 COPY --from=builder /usr/local/cargo/bin/tibco-ems-operator .
 ENV RUST_BACKTRACE=full
 CMD ["./tibco-ems-operator"]
