@@ -1,4 +1,4 @@
-use kube::{api::{Api, ListParams, Meta, PostParams}, Client};
+use kube::{api::{Api, ListParams, Resource, PostParams}, Client};
 use kube::api::WatchEvent;
 use kube::Service;
 use core::convert::TryFrom;
@@ -13,12 +13,8 @@ use once_cell::sync::Lazy;
 use hyper::Result;
 use schemars::JsonSchema;
 use env_var::env_var;
-use tibco_ems::MapMessage;
-use tibco_ems::TypedValue;
-use tibco_ems::Destination;
-use tibco_ems::DestinationType;
-
-use crate::ems;
+use tibco_ems::admin::TopicInfo;
+use tibco_ems::Session;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", 
@@ -46,8 +42,22 @@ pub struct TopicStatus {
 
 pub static KNOWN_TOPICS: Lazy<Mutex<HashMap<String, Topic>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 
-pub static TOPICS: Lazy<Mutex<HashMap<String,ems::TopicInfo>>> = Lazy::new(|| 
+pub static TOPICS: Lazy<Mutex<HashMap<String,TopicInfo>>> = Lazy::new(|| 
   Mutex::new(HashMap::new() ) );
+
+///used for retrieving queue statistics
+static TOPIC_ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(init_admin_connection()));
+///used for sending admin operations
+static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(init_admin_connection()));
+
+fn init_admin_connection() -> Session{
+  let username = env_var!(required "USERNAME");
+  let password = env_var!(required "PASSWORD");
+  let server_url = env_var!(required "SERVER_URL");
+  let conn = tibco_ems::admin::connect(&server_url, &username, &password).unwrap();
+  info!("creating admin connection");
+  conn.session().unwrap()
+}
 
 pub async fn watch_topics() -> Result<()>{
   let crds: Api<Topic> = get_topic_client().await;
@@ -57,22 +67,22 @@ pub async fn watch_topics() -> Result<()>{
   let mut last_version: String = "0".to_owned();
   info!("subscribing events of type topics.tibcoems.apimeister.com/v1");
   loop{
-    debug!("T: new loop iteration with offset {}",last_version);
+    debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
     match watch_result {
       Ok(str_result) => {
         let mut stream = str_result.boxed();
         loop {
-          debug!("T: new stream item");
           let stream_result = stream.try_next().await;
           match stream_result {
             Ok(status_obj) => {
               match status_obj {
                 Some(status) => {
+                  debug!("new stream item");
                   match status {
                     WatchEvent::Added(mut topic) =>{
                       let topic_name = get_topic_name(&topic);
-                      let name = Meta::name(&topic);
+                      let name = Resource::name(&topic);
                       {
                         let mut res = KNOWN_TOPICS.lock().unwrap();
                         match res.get(&topic_name) {
@@ -94,6 +104,7 @@ pub async fn watch_topics() -> Result<()>{
                         },
                         _ => {},
                       };
+                      last_version = Resource::resource_ver(&topic).unwrap();
                     },
                     WatchEvent::Deleted(topic) =>{
                       let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
@@ -102,7 +113,8 @@ pub async fn watch_topics() -> Result<()>{
                         warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",tname);
                       }else{
                         delete_topic(&topic);
-                      }                  
+                      }
+                      last_version = Resource::resource_ver(&topic).unwrap();
                     },
                     WatchEvent::Error(e) => {
                       error!("Error {}", e);
@@ -113,13 +125,13 @@ pub async fn watch_topics() -> Result<()>{
                   };
                 },
                 None => {
-                  debug!("T: request loop returned empty");  
+                  debug!("request loop returned empty");  
                   break;
                 }
               }
             },
             Err(err) => {
-              debug!("T: error on request loop {:?}",err);  
+              debug!("error on request loop {:?}",err);  
               break;
             }
           }
@@ -137,41 +149,45 @@ pub async fn watch_topics_status() -> Result<()>{
   let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
   let mut interval = time::interval(Duration::from_millis(status_refresh_in_ms));
   loop {
-    let result = ems::get_topic_stats();
+    let result;
+    {
+      let session = TOPIC_ADMIN_CONNECTION.lock().unwrap();
+      result = tibco_ems::admin::list_all_topics(&session);
+    }
     for tinfo in &result {
       //update prometheus
       {
         let mut c_map = TOPICS.lock().unwrap();
-        c_map.insert(tinfo.topic_name.clone(),tinfo.clone());
+        c_map.insert(tinfo.name.clone(),tinfo.clone());
       }
       //update k8s state
       if read_only == "FALSE" {
         let mut t : Option<Topic> = None;
         {
           let mut res = KNOWN_TOPICS.lock().unwrap();
-          match res.get(&tinfo.topic_name) {
+          match res.get(&tinfo.name) {
             Some(topic) =>{
               let mut local_t = topic.clone();
               match &topic.status {
                 Some(status) => {
-                  if status.pendingMessages != tinfo.pending_messages
-                    || status.subscribers != tinfo.subscribers
-                    || status.durables != tinfo.durables {
+                  if status.pendingMessages != tinfo.pending_messages.unwrap()
+                    || status.subscribers != tinfo.subscriber_count.unwrap()
+                    || status.durables != tinfo.durable_count.unwrap() {
                     local_t.status = Some(TopicStatus{
-                        pendingMessages: tinfo.pending_messages,
-                        subscribers: tinfo.subscribers,
-                        durables: tinfo.durables });
+                        pendingMessages: tinfo.pending_messages.unwrap(),
+                        subscribers: tinfo.subscriber_count.unwrap(),
+                        durables: tinfo.durable_count.unwrap() });
                     t = Some(local_t.clone());  
-                    res.insert(tinfo.topic_name.to_owned(),local_t);
+                    res.insert(tinfo.name.to_owned(),local_t);
                   }
                 },
                 None => {
                   local_t.status = Some(TopicStatus{
-                    pendingMessages: tinfo.pending_messages,
-                    subscribers: tinfo.subscribers,
-                    durables: tinfo.durables});
+                    pendingMessages: tinfo.pending_messages.unwrap(),
+                    subscribers: tinfo.subscriber_count.unwrap(),
+                    durables: tinfo.durable_count.unwrap()});
                   t = Some(local_t.clone());  
-                  res.insert(tinfo.topic_name.to_owned(),local_t);
+                  res.insert(tinfo.name.to_owned(),local_t);
                 },
               }
             },
@@ -184,7 +200,7 @@ pub async fn watch_topics_status() -> Result<()>{
             debug!("updating topic status for {}",obj_name);
             let updater: Api<Topic> = get_topic_client().await;
             let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
-            local_topic.metadata.resource_version=Meta::resource_ver(&latest_topic);
+            local_topic.metadata.resource_version=Resource::resource_ver(&latest_topic);
             let q_json = serde_json::to_string(&local_topic).unwrap();
             let pp = PostParams::default();
             let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
@@ -234,55 +250,17 @@ fn get_obj_name_from_topic(topic: &Topic) -> String {
 }
 
 fn create_topic(topic: &mut  Topic){
-  let command_create_destination = 18;
-  let admin_queue_name = "$sys.admin";
   let tname = get_topic_name(topic);
-  //create topic map-message
-  let mut msg: MapMessage = Default::default();
-  msg.body.insert("dn".to_string(), TypedValue::string_value(tname.clone()));
-  msg.body.insert("dt".to_string(),TypedValue::int_value(2));
-  match topic.spec.maxbytes {
-    Some(val) => {
-      msg.body.insert("mb".to_string(), TypedValue::long_value(val));
-    },
-    _ => {},
-  }
-  match topic.spec.maxmsgs {
-    Some(val) => {
-      msg.body.insert("mm".to_string(), TypedValue::long_value(val));
-    },
-    _ => {},
-  }
-  match topic.spec.global {
-    Some(val) => {
-      msg.body.insert("global".to_string(), TypedValue::bool_value(val));
-    },
-    _ => {},
-  }
 
-  //header
-  let mut header: HashMap<String,TypedValue> = HashMap::new();
-  //actual boolean
-  header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
-  header.insert("code".to_string(),TypedValue::int_value(command_create_destination));
-  header.insert("save".to_string(),TypedValue::bool_value(true));
-  header.insert("arseq".to_string(),TypedValue::int_value(1));
-
-  msg.header = Some(header);
-
-  let admin_session = ems::ADMIN_CONNECTION.lock().unwrap();
-
-  let dest = Destination{
-    destination_type: DestinationType::Queue,
-    destination_name: admin_queue_name.to_string(),
+  let topic_info = TopicInfo{
+    name: tname,
+    max_bytes: topic.spec.maxbytes,
+    max_messages: topic.spec.maxmsgs,
+    global: topic.spec.global,
+    ..Default::default()
   };
-  let result = admin_session.send_message(dest, msg.into());
-  match result {
-    Ok(_) => {},
-    Err(err) => {
-      error!("error while creating topic {}: {}",tname,err);
-    },
-  }
+  let session = ADMIN_CONNECTION.lock().unwrap();
+  tibco_ems::admin::create_topic(&session, &topic_info);
 
   //propagate defaults
   match topic.spec.maxmsgs {
@@ -302,34 +280,9 @@ fn create_topic(topic: &mut  Topic){
 }
 
 fn delete_topic(topic: &Topic){
-  let command_delete_destination = 16;
-  let admin_queue_name = "$sys.admin";
   let tname = get_topic_name(topic);
   info!("deleting topic {}", tname);
-  //create queue map-message
-  let mut msg: MapMessage = Default::default();
-  msg.body.insert("dn".to_string(), TypedValue::string_value(tname.clone()));
-  //header
-  let mut header: HashMap<String,TypedValue> = HashMap::new();
-  //actual boolean
-  header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
-  header.insert("code".to_string(),TypedValue::int_value(command_delete_destination));
-  header.insert("save".to_string(),TypedValue::bool_value(true));
-  header.insert("arseq".to_string(),TypedValue::int_value(1));
 
-  msg.header = Some(header);
-
-  let admin_session = ems::ADMIN_CONNECTION.lock().unwrap();
-
-  let dest = Destination{
-    destination_type: DestinationType::Queue,
-    destination_name: admin_queue_name.to_string(),
-  };
-  let result = admin_session.send_message(dest, msg.into());
-  match result {
-    Ok(_) => {},
-    Err(err) => {
-      error!("error while deleting topic {}: {}",tname,err);
-    }
-  }
+  let session = ADMIN_CONNECTION.lock().unwrap();
+  tibco_ems::admin::delete_topic(&session, &tname);
 }

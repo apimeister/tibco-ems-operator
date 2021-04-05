@@ -1,7 +1,7 @@
 use core::convert::TryFrom;
 use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
-use kube::{api::{Api, ListParams, Meta}, Client};
+use kube::{api::{Api, ListParams, Resource}, Client};
 use kube::api::WatchEvent;
 use kube::Service;
 use kube_derive::CustomResource;
@@ -10,14 +10,11 @@ use hyper::Result;
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use tibco_ems::MapMessage;
-use tibco_ems::TypedValue;
-use tibco_ems::Destination;
 use tibco_ems::DestinationType;
+use tibco_ems::Session;
+use tibco_ems::admin::BridgeInfo;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-
-use crate::ems;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", kind="Bridge", namespaced)]
@@ -32,6 +29,18 @@ pub struct BridgeSpec {
 
 pub static KNOWN_BRIDGES: Lazy<Mutex<HashMap<String, Bridge>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 
+///used for sending admin operations
+static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(init_admin_connection()));
+
+fn init_admin_connection() -> Session{
+  let username = env_var!(required "USERNAME");
+  let password = env_var!(required "PASSWORD");
+  let server_url = env_var!(required "SERVER_URL");
+  let conn = tibco_ems::admin::connect(&server_url, &username, &password).unwrap();
+  info!("creating admin connection");
+  conn.session().unwrap()
+}
+
 pub async fn watch_bridges() -> Result<()>{
   let crds: Api<Bridge> = get_bridge_client().await;
   let lp = ListParams::default();
@@ -39,13 +48,13 @@ pub async fn watch_bridges() -> Result<()>{
   let mut last_version: String = "0".to_owned();
   info!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
   loop{
-    debug!("B: new loop iteration with offset {}",last_version);
+    debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
     match watch_result {
       Ok(str_result) => {
         let mut stream = str_result.boxed();
         loop {
-          debug!("B: new stream item");
+          debug!("new stream item");
           let stream_result = stream.try_next().await;
           match stream_result {
             Ok(status_obj) => {
@@ -53,41 +62,38 @@ pub async fn watch_bridges() -> Result<()>{
                 Some(status) => {
                   match status {
                     WatchEvent::Added(bridge) => {
-                      let ver = Meta::resource_ver(&bridge).unwrap();
-                      let bname = Meta::name(&bridge);
+                      let bname = Resource::name(&bridge);
                       {
                         let mut res = KNOWN_BRIDGES.lock().unwrap();
                         match res.get(&bname) {
                           Some(_bridge) => debug!("bridge already known {}", &bname),
                           None => {
-                            info!("Added {}@{}", bname, &ver);
+                            info!("Added {}", bname);
                             create_bridge(&bridge);
-                            last_version = (ver.parse::<i64>().unwrap() + 1).to_string(); 
                             let b = bridge.clone();
                             let n = bname.clone();
                             res.insert(n, b);
                           },
                         }
                       }
+                      last_version = Resource::resource_ver(&bridge).unwrap();
                     },
                     WatchEvent::Modified(bridge) => {
-                      let ver = Meta::resource_ver(&bridge).unwrap();
-                      info!("Modified {}@{}", Meta::name(&bridge), &ver);
+                      info!("Modified {}", Resource::name(&bridge));
                       create_bridge(&bridge);
-                      last_version = (ver.parse::<i64>().unwrap() + 1).to_string();            
+                      last_version = Resource::resource_ver(&bridge).unwrap();          
                     }
                     WatchEvent::Deleted(bridge) => {
-                      let ver = Meta::resource_ver(&bridge).unwrap();
-                      let bname = Meta::name(&bridge);
+                      let bname = Resource::name(&bridge);
                       let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
                       if do_not_delete == "TRUE" {
                         warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",bname);
                       }else{
                         delete_bridge(&bridge);
                       }
-                      last_version = (ver.parse::<i64>().unwrap() + 1).to_string();   
                       let mut res = KNOWN_BRIDGES.lock().unwrap();
-                      res.remove(&bname);                    
+                      res.remove(&bname);
+                      last_version = Resource::resource_ver(&bridge).unwrap();                   
                     },
                     WatchEvent::Error(e) => {
                       if e.code == 410 && e.reason == "Expired" {
@@ -101,13 +107,13 @@ pub async fn watch_bridges() -> Result<()>{
                   };
                 },
                 None => {
-                  debug!("B: request loop returned empty");  
+                  debug!("request loop returned empty");  
                   break;
                 }
               }
             },
             Err(err) => {
-              debug!("B: error on request loop {:?}",err);  
+              debug!("error on request loop {:?}",err);  
               break;
             }
           }
@@ -130,124 +136,67 @@ async fn get_bridge_client() -> Api<Bridge>{
 }
 
 fn create_bridge(bridge: &Bridge){
-  let command_create_bridge = 220;
-  let admin_queue_name = "$sys.admin";
   let bname = bridge.metadata.name.clone().unwrap();
   info!("creating bridge {}",bname);
-  //create bridge map-message
-  let source_name = bridge.spec.source_name.clone();
+  let session = ADMIN_CONNECTION.lock().unwrap();
+  let mut bridge_info = BridgeInfo{
+    source_name: bridge.spec.source_name.clone(),
+    source_type: DestinationType::Topic,
+    target_name: bridge.spec.target_name.clone(),
+    target_type: DestinationType::Queue,
+    selector: None,
+  };
   let mut source_type = bridge.spec.source_type.clone();
-  let target_name = bridge.spec.target_name.clone();
-  let mut target_type = bridge.spec.target_type.clone();
-  let mut msg: MapMessage = Default::default();
-  msg.body.insert("sn".to_string(), TypedValue::string_value(source_name));
   source_type.make_ascii_uppercase();
   if source_type.starts_with("QUEUE") {
-    msg.body.insert("st".to_string(), TypedValue::int_value(1));
+    bridge_info.source_type = DestinationType::Queue;
   }
   if source_type.starts_with("TOPIC") {
-    msg.body.insert("st".to_string(), TypedValue::int_value(2));
+    bridge_info.source_type = DestinationType::Topic;
   }
-  msg.body.insert("tn".to_string(), TypedValue::string_value(target_name));
+  let mut target_type = bridge.spec.target_type.clone();
   target_type.make_ascii_uppercase();
   if target_type.starts_with("QUEUE") {
-    msg.body.insert("tt".to_string(), TypedValue::int_value(1));
+    bridge_info.target_type = DestinationType::Queue;
   }
   if target_type.starts_with("TOPIC") {
-    msg.body.insert("tt".to_string(), TypedValue::int_value(2));
+    bridge_info.target_type = DestinationType::Topic;
   }
   match bridge.spec.selector.clone() {
     Some(sel) => {
-      msg.body.insert("sel".to_string(), TypedValue::string_value(sel));
+      bridge_info.selector = Some(sel);
     },
     None => {},
   }
-  //header
-  let mut header: HashMap<String,TypedValue> = HashMap::new();
-  //actual boolean
-  header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
-  header.insert("code".to_string(),TypedValue::int_value(command_create_bridge));
-  header.insert("save".to_string(),TypedValue::bool_value(true));
-  header.insert("arseq".to_string(),TypedValue::int_value(1));
-
-  msg.header = Some(header);
-
-  let admin_session = ems::ADMIN_CONNECTION.lock().unwrap();
-
-  let dest = Destination{
-    destination_type: DestinationType::Queue,
-    destination_name: admin_queue_name.to_string(),
-  };
-  let result = admin_session.send_message(dest, msg.into());
-  match result {
-    Ok(_) => {},
-    Err(err) => {
-      error!("error while creating bridge {}: {}",bname,err);
-    },
-  }
+  tibco_ems::admin::create_bridge(&session, &bridge_info);
 }
 
 fn delete_bridge(bridge: &Bridge){
-  let command_delete_bridge = 221;
-  let admin_queue_name = "$sys.admin";
   let bname = bridge.metadata.name.clone().unwrap();
   info!("deleting bridge {}",bname);
-  let source_name = bridge.spec.source_name.clone();
+  let session = ADMIN_CONNECTION.lock().unwrap();
+  let mut bridge_info = BridgeInfo{
+    source_name: bridge.spec.source_name.clone(),
+    source_type: DestinationType::Topic,
+    target_name: bridge.spec.target_name.clone(),
+    target_type: DestinationType::Queue,
+    selector: None,
+  };
   let mut source_type = bridge.spec.source_type.clone();
-  let target_name = bridge.spec.target_name.clone();
-  let mut target_type = bridge.spec.target_type.clone();
-
-  //create bridge map-message
-  let mut msg: MapMessage = Default::default();
-  msg.body.insert("sn".to_string(), TypedValue::string_value(source_name));
   source_type.make_ascii_uppercase();
   if source_type.starts_with("QUEUE") {
-    msg.body.insert("st".to_string(), TypedValue::int_value(1));
+    bridge_info.source_type = DestinationType::Queue;
   }
   if source_type.starts_with("TOPIC") {
-    msg.body.insert("st".to_string(), TypedValue::int_value(2));
+    bridge_info.source_type = DestinationType::Topic;
   }
-  msg.body.insert("tn".to_string(), TypedValue::string_value(target_name));
+  let mut target_type = bridge.spec.target_type.clone();
   target_type.make_ascii_uppercase();
   if target_type.starts_with("QUEUE") {
-    msg.body.insert("tt".to_string(), TypedValue::int_value(1));
+    bridge_info.target_type = DestinationType::Queue;
   }
   if target_type.starts_with("TOPIC") {
-    msg.body.insert("tt".to_string(), TypedValue::int_value(2));
+    bridge_info.target_type = DestinationType::Topic;
   }
-  //header
-  let mut header: HashMap<String,TypedValue> = HashMap::new();
-  //actual boolean
-  header.insert("JMS_TIBCO_MSG_EXT".to_string(),TypedValue::bool_value(true));
-  header.insert("code".to_string(),TypedValue::int_value(command_delete_bridge));
-  header.insert("save".to_string(),TypedValue::bool_value(true));
-  header.insert("arseq".to_string(),TypedValue::int_value(1));
-  msg.header = Some(header);
-
-  let admin_session = ems::ADMIN_CONNECTION.lock().unwrap();
-
-  let dest = Destination{
-    destination_type: DestinationType::Queue,
-    destination_name: admin_queue_name.to_string(),
-  };
-  let result = admin_session.send_message(dest, msg.into());
-  match result {
-    Ok(_) => {},
-    Err(err) => {
-      error!("error while deleting bridge {}: {}",bname,err);
-    }
-  }
-  
+  tibco_ems::admin::delete_bridge(&session, &bridge_info);
 }
-
-/*
-create bridge
-tt = 1
-st = 1
-tn = q.test.2
-sn Q.TEST.1
-header:
-code 220 => create
-code 221 => delete
-save: true
-*/

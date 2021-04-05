@@ -1,11 +1,14 @@
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Result, Server, StatusCode};
 use hyper::header::CONTENT_TYPE;
+use tibco_ems::admin::QueueInfo;
+use tibco_ems::admin::TopicInfo;
+use tibco_ems::Session;
 
-mod ems;
 mod queue;
 mod topic;
 mod bridge;
+mod scaler;
 
 #[macro_use]
 extern crate log;
@@ -27,8 +30,8 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
       let c_map = queue::QUEUES.lock().unwrap();
       for key in c_map.keys() {
         let qinfo = c_map.get(key).unwrap();
-        let pending = format!("Q:pendingMessages{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.queue_name,qinfo.pending_messages);
-        let consumers = format!("Q:consumers{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.queue_name,qinfo.consumers);
+        let pending = format!("Q:pendingMessages{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.pending_messages.unwrap());
+        let consumers = format!("Q:consumers{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.consumer_count.unwrap());
         body.push_str(&pending);
         body.push_str(&consumers);
       }
@@ -38,9 +41,9 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
       let c_map = topic::TOPICS.lock().unwrap();
       for key in c_map.keys() {
         let tinfo = c_map.get(key).unwrap();
-        let pending = format!("T:pendingMessages{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.topic_name,tinfo.pending_messages);
-        let subscribers = format!("T:subscribers{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.durables,tinfo.subscribers);
-        let durables = format!("T:durables{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.durables,tinfo.durables);
+        let pending = format!("T:pendingMessages{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.pending_messages.unwrap());
+        let subscribers = format!("T:subscribers{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.subscriber_count.unwrap());
+        let durables = format!("T:durables{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.durable_count.unwrap());
         body.push_str(&pending);
         body.push_str(&subscribers);
         body.push_str(&durables);
@@ -60,60 +63,71 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
         //escaped pipe character
         //multiple queues
         let queue_list = queue_name.split("%7C");
-        let all_queues = &mut ems::QueueInfo{
-          queue_name: "mixed".to_string(),
-          pending_messages: 0,
-          consumers: 0,
+        let all_queues = &mut QueueInfo{
+          name: "mixed".to_string(),
+          pending_messages: Some(0),
+          consumer_count: Some(0),
+          ..Default::default()
         };
         //get queues 
         {
           let c_map = queue::QUEUES.lock().unwrap();
+          let mut pending_messages = 0;
+          let mut consumer_count = 0;
           for key in c_map.keys() {
             let qinfo = c_map.get(key).unwrap();
             queue_list.clone().by_ref().for_each(|e| {
-              if &qinfo.queue_name == e {
-                all_queues.pending_messages += qinfo.pending_messages;
-                all_queues.consumers += qinfo.consumers;
+              if &qinfo.name == e {
+                pending_messages += qinfo.pending_messages.unwrap();
+                consumer_count += qinfo.consumer_count.unwrap();
               }
             });
           }
+          all_queues.pending_messages = Some(pending_messages);
+          all_queues.consumer_count = Some(consumer_count);
         }
         json_string = serde_json::to_string(all_queues).unwrap();
       } else if queue_name.contains("|") {
         //multiple queues
         let queue_list = queue_name.split("|");
-        let all_queues = &mut ems::QueueInfo{
-          queue_name: "mixed".to_string(),
-          pending_messages: 0,
-          consumers: 0,
+        let all_queues = &mut QueueInfo{
+          name: "mixed".to_string(),
+          pending_messages: Some(0),
+          consumer_count: Some(0),
+          ..Default::default()
         };
         //get queues 
         {
           let c_map = queue::QUEUES.lock().unwrap();
+          let mut pending_messages = 0;
+          let mut consumer_count = 0;
           for key in c_map.keys() {
             let qinfo = c_map.get(key).unwrap();
             queue_list.clone().by_ref().for_each(|e| {
-              if &qinfo.queue_name == e {
-                all_queues.pending_messages += qinfo.pending_messages;
-                all_queues.consumers += qinfo.consumers;
+              if &qinfo.name == e {
+                pending_messages += qinfo.pending_messages.unwrap();
+                consumer_count += qinfo.consumer_count.unwrap();
               }
             });
           }
+          all_queues.pending_messages = Some(pending_messages);
+          all_queues.consumer_count = Some(consumer_count);
         }
         json_string = serde_json::to_string(all_queues).unwrap();
       } else {
         //get single queue
-        let queue_info = &mut ems::QueueInfo{
-          queue_name: queue_name.to_string(),
-          pending_messages: 0,
-          consumers: 0,
+        let queue_info = &mut QueueInfo{
+          name: queue_name.to_string(),
+          pending_messages: Some(0),
+          consumer_count: Some(0),
+          ..Default::default()
         };
         json_string = serde_json::to_string(queue_info).unwrap();
         {
           let c_map = queue::QUEUES.lock().unwrap();
           for key in c_map.keys() {
             let qinfo = c_map.get(key).unwrap();
-            if qinfo.queue_name == queue_name {
+            if qinfo.name == queue_name {
               json_string = serde_json::to_string(qinfo).unwrap();
             }
           }
@@ -132,41 +146,49 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
         if topic_name.contains("|") {
           //multiple topics
           let topic_list = topic_name.split("|");
-          let all_topics = &mut ems::TopicInfo{
-            topic_name: "mixed".to_string(),
-            pending_messages: 0,
-            subscribers: 0,
-            durables: 0,
+          let all_topics = &mut TopicInfo{
+            name: "mixed".to_string(),
+            pending_messages: Some(0),
+            subscriber_count: Some(0),
+            durable_count: Some(0),
+            ..Default::default()
           };
           //get topics 
           {
             let c_map = topic::TOPICS.lock().unwrap();
+            let mut pending_messages = 0;
+            let mut subscriber_count = 0;
+            let mut durable_count = 0;
             for key in c_map.keys() {
               let tinfo = c_map.get(key).unwrap();
               topic_list.clone().by_ref().for_each(|e| {
-                if &tinfo.topic_name == e {
-                  all_topics.pending_messages += tinfo.pending_messages;
-                  all_topics.subscribers += tinfo.subscribers;
-                  all_topics.durables += tinfo.durables;
+                if &tinfo.name == e {
+                  pending_messages += tinfo.pending_messages.unwrap();
+                  subscriber_count += tinfo.subscriber_count.unwrap();
+                  durable_count += tinfo.durable_count.unwrap();
                 }
               });
             }
+            all_topics.pending_messages = Some(pending_messages);
+            all_topics.subscriber_count = Some(subscriber_count);
+            all_topics.durable_count = Some(durable_count);
           }
           json_string = serde_json::to_string(all_topics).unwrap();
         } else {
           //get single topic 
-          let topic_info = &mut ems::TopicInfo{
-            topic_name: topic_name.to_string(),
-            pending_messages: 0,
-            subscribers: 0,
-            durables: 0,
+          let topic_info = &mut TopicInfo{
+            name: topic_name.to_string(),
+            pending_messages: Some(0),
+            subscriber_count: Some(0),
+            durable_count: Some(0),
+            ..Default::default()
           };
           json_string = serde_json::to_string(topic_info).unwrap();
           {
             let c_map = topic::TOPICS.lock().unwrap();
             for key in c_map.keys() {
               let tinfo = c_map.get(key).unwrap();
-              if tinfo.topic_name == topic_name {
+              if tinfo.name == topic_name {
                 json_string = serde_json::to_string(tinfo).unwrap();
               }
             }
@@ -192,11 +214,18 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
   }
 }
 
+pub fn init_admin_connection() -> Session{
+  let username = env_var!(required "USERNAME");
+  let password = env_var!(required "PASSWORD");
+  let server_url = env_var!(required "SERVER_URL");
+  let conn = tibco_ems::admin::connect(&server_url, &username, &password).unwrap();
+  info!("creating admin connection");
+  conn.session().unwrap()
+}
+
 #[tokio::main]
 async fn main() {
-  env_logger::builder()
-    .format_timestamp(None)
-    .init();
+  env_logger::init();
   info!("starting tibco-ems-operator");
 
   let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
@@ -210,6 +239,12 @@ async fn main() {
   //watch object statistics
   let _ignore = tokio::spawn(queue::watch_queues_status());
   let _ignore = tokio::spawn(topic::watch_topics_status());
+
+  let scaling = env_var!(optional "ENABLE_SCALING", default:"FALSE");
+  if scaling == "TRUE" {
+    //watch custom resource objects
+    let _ignore = tokio::spawn(scaler::run());
+  }
 
   //spawn metrics server
   let addr = "0.0.0.0:8080".parse().unwrap();

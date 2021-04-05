@@ -15,4 +15,24 @@ This project is a work in progress. It is not yet functional and I will update t
 | USERNAME | required | {user} | |
 | PASSWORD | required | {password} | |
 | ADMIN_COMMAND_TIMEOUT_MS | optional | 60000 | command timeout in milliseconds, default is 60000 |
+| ENABLE_SCALING | optional | FALSE | if set to TRUE (all caps), deployment can be scaled through the operator |
 
+## Scaling
+
+The operator can be used to dynamically scale deployment from zero to one.
+
+To enable scaling on a deployment, the following labels have to be set.
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: sample-app
+    tibcoems.apimeister.com/scaling: "true"
+    tibcoems.apimeister.com/queue.1: test.q
+  name: sample-app
+spec:
+  replicas: 0
+  ...
+```
