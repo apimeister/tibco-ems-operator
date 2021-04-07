@@ -117,9 +117,15 @@ pub async fn watch_topics() -> Result<()>{
                       last_version = Resource::resource_ver(&topic).unwrap();
                     },
                     WatchEvent::Error(e) => {
-                      error!("Error {}", e);
-                      error!("resetting offset to 0");
-                      last_version="0".to_owned();
+                      if e.code == 410 && e.reason=="Expired" {
+                        //fail silently
+                        trace!("resource_version too old, resetting offset to 0");
+                        last_version="0".to_owned();
+                      }else{
+                        error!("Error {}", e);
+                        error!("resetting offset to 0");
+                        last_version="0".to_owned();
+                      }
                     },
                     _ => {},
                   };

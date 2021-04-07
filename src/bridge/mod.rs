@@ -96,10 +96,13 @@ pub async fn watch_bridges() -> Result<()>{
                       last_version = Resource::resource_ver(&bridge).unwrap();                   
                     },
                     WatchEvent::Error(e) => {
-                      if e.code == 410 && e.reason == "Expired" {
+                      if e.code == 410 && e.reason=="Expired" {
+                        //fail silently
+                        trace!("resource_version too old, resetting offset to 0");
                         last_version="0".to_owned();
                       }else{
-                        error!("Error: {}", e);
+                        error!("Error {}", e);
+                        error!("resetting offset to 0");
                         last_version="0".to_owned();
                       }
                     },
