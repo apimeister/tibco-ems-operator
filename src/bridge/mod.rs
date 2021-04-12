@@ -101,7 +101,7 @@ pub async fn watch_bridges() -> Result<()>{
                         trace!("resource_version too old, resetting offset to 0");
                         last_version="0".to_owned();
                       }else{
-                        error!("Error {}", e);
+                        error!("Error {:?}", e);
                         error!("resetting offset to 0");
                         last_version="0".to_owned();
                       }
