@@ -46,18 +46,9 @@ pub static TOPICS: Lazy<Mutex<HashMap<String,TopicInfo>>> = Lazy::new(||
   Mutex::new(HashMap::new() ) );
 
 ///used for retrieving queue statistics
-static TOPIC_ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(init_admin_connection()));
+static TOPIC_ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
 ///used for sending admin operations
-static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(init_admin_connection()));
-
-fn init_admin_connection() -> Session{
-  let username = env_var!(required "USERNAME");
-  let password = env_var!(required "PASSWORD");
-  let server_url = env_var!(required "SERVER_URL");
-  let conn = tibco_ems::admin::connect(&server_url, &username, &password).unwrap();
-  info!("creating admin connection");
-  conn.session().unwrap()
-}
+static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
 
 pub async fn watch_topics() -> Result<()>{
   let crds: Api<Topic> = get_topic_client().await;

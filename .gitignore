@@ -12,3 +12,6 @@ Cargo.lock
 
 /deps/
 /terraform/
+
+# local env helper
+build.rs
