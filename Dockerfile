@@ -14,6 +14,7 @@ RUN cargo install --path .
 
 # Bundle Stage
 FROM centos as final
+RUN dnf -y update && dnf clean all
 COPY --from=emslibs /opt/tibco/ems/8.6/lib/libtibems.so /lib64/libtibems.so
 COPY --from=builder /usr/local/cargo/bin/tibco-ems-operator .
 ENV RUST_BACKTRACE=full

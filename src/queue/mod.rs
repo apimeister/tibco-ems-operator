@@ -15,9 +15,7 @@ use env_var::env_var;
 use core::convert::TryFrom;
 use tibco_ems::Session;
 use tibco_ems::admin::QueueInfo;
-use super::scaler::ScaleUp;
-use super::scaler::ScaleDown;
-use super::scaler::get_epoch_seconds;
+use super::scaler::State;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", 
@@ -169,42 +167,28 @@ pub async fn watch_queues_status() -> Result<()>{
     }
     for qinfo in &result {
       let queue_name = qinfo.name.clone();
+      let pending_messages: i64 = match qinfo.pending_messages {
+        Some(val) => val,
+        None => 0,
+      };
       //update prometheus
       {
         let mut c_map = QUEUES.lock().unwrap();
-        c_map.insert(qinfo.name.clone(),qinfo.clone());
+        c_map.insert(queue_name.clone(),qinfo.clone());
       }
       //update scaler
-      let scaling = env_var!(optional "ENABLE_SCALING", default:"FALSE");
-      if scaling == "TRUE" {
-        let targets = super::scaler::SCALE_TARGETS.lock().unwrap();
-        if targets.contains_key(&queue_name) {
-          let deployment_name = targets.get(&queue_name).unwrap();
-          let mut scalings = super::scaler::KNOWN_SCALINGS.lock().unwrap();
-          let scaling = scalings.get(deployment_name).unwrap();
-          if qinfo.pending_messages.unwrap() > 0 {
-            //scale up
-            let s = scaling.clone();
-            let s2 = s.on_scale_up(ScaleUp{
-              activity_timestamp: get_epoch_seconds()
-            });
-            scalings.insert(deployment_name.clone(),s2);
-          }else{
-            //scale down
-            let s = scaling.clone();
-            let s2 = s.on_scale_down(ScaleDown{
-              activity_timestamp: get_epoch_seconds()
-            });
-            scalings.insert(deployment_name.clone(),s2);
-          }
+      {
+        let scaling = env_var!(optional "ENABLE_SCALING", default:"FALSE");
+        if scaling == "TRUE" {
+          scale(&queue_name, pending_messages).await;
         }
-      }    
+      }
       //update k8s state
       if read_only == "FALSE" {
         let mut q : Option<Queue> = None;
         {
           let mut res = KNOWN_QUEUES.lock().unwrap();
-          match res.get(&qinfo.name) {
+          match res.get(&queue_name) {
             Some(queue) =>{
               let mut local_q = queue.clone();
               match &queue.status {
@@ -213,13 +197,6 @@ pub async fn watch_queues_status() -> Result<()>{
                   match qinfo.consumer_count {
                     Some(val) => {
                       consumer_count = val;
-                    },
-                    None =>{},
-                  }
-                  let mut pending_messages = 0;
-                  match qinfo.pending_messages {
-                    Some(val) => {
-                      pending_messages = val;
                     },
                     None =>{},
                   }
@@ -241,13 +218,7 @@ pub async fn watch_queues_status() -> Result<()>{
                 },
               }
             },
-            None => {
-              //in read_only mode, watch all queues
-              let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
-              if read_only == "TRUE" {
-                
-              }
-            },
+            None => {},
           }
         }
         match q {
@@ -274,6 +245,34 @@ pub async fn watch_queues_status() -> Result<()>{
     }
     interval.tick().await;
   }
+}
+
+fn get_target(queue_name: &str) -> String {
+  let targets = super::scaler::SCALE_TARGETS.lock().unwrap();
+  let x = targets.get(queue_name).unwrap();  
+  x.to_string()  
+}
+fn get_state(deployment_name: &str) -> State {
+  let states = super::scaler::KNOWN_STATES.lock().unwrap();
+  let x = states.get(deployment_name).unwrap();  
+  x.clone()  
+}
+fn insert_state(deployment_name: String, state: State){
+  let mut states = super::scaler::KNOWN_STATES.lock().unwrap();
+  states.insert(deployment_name, state);
+}
+async fn scale(queue_name: &str, pending_messages: i64) {
+  let deployment_name = get_target(queue_name);
+  let deployment_state: State = get_state(&deployment_name);
+  if pending_messages > 0 {
+    //scale up
+    let s2 = deployment_state.scale_up().await;
+    insert_state(deployment_name, s2);
+  }else{
+    //scale down
+    let s2 = deployment_state.scale_down().await;
+    insert_state(deployment_name, s2)
+  }  
 }
 
 async fn get_queue_client() -> Api<Queue>{

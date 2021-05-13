@@ -8,99 +8,84 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use tokio::time::{self, Duration};
-use machine::machine;
-use machine::transitions;
 use std::time::SystemTime;
 
 const COOLDOWN_PERIOD_SECONDS: u64 = 60;
 
-machine!(
-  #[derive(Clone,Debug,PartialEq)]
-  enum Scaling {
-    Active { activity_timestamp: u64, deployment: Deployment },
-    Inactive { activity_timestamp: u64, deployment: Deployment },
-  }
-);
-
 #[derive(Clone,Debug,PartialEq)]
-pub struct ScaleUp{
-  pub activity_timestamp: u64,
+pub struct StateValue{
+  activity_timestamp: u64,
+  deployment: String,
 }
 #[derive(Clone,Debug,PartialEq)]
-pub struct ScaleDown{
-  pub activity_timestamp: u64,
+pub enum State{
+  Inactive(StateValue),
+  Active(StateValue),
+}
+impl State {
+  pub fn new(deployment: String) -> State {
+    State::Inactive(StateValue{ 
+      activity_timestamp: get_epoch_seconds(),
+      deployment: deployment,
+    })
+  }
 }
 
-transitions!(Scaling,
-  [
-    (Active, ScaleUp) => Active,
-    (Active, ScaleDown) => [Active, Inactive],
-    (Inactive, ScaleUp) => Active,
-    (Inactive, ScaleDown) => Inactive
-  ]
-);
-
-impl Active {
-  pub fn on_scale_down(&self, event: ScaleDown) -> Scaling {
-    //check for cooldown period
-    if self.activity_timestamp < event.activity_timestamp - COOLDOWN_PERIOD_SECONDS {
-      //scaling down
-      info!("scaling down {}",self.deployment.metadata.name.clone().unwrap());
-      return Scaling::Inactive(Inactive{
-        activity_timestamp: event.activity_timestamp,
-        deployment: self.deployment.clone(),
-      })
-    }else{
-      //still in cooldown phase
-      info!("still in cooldown phase {}",self.deployment.metadata.name.clone().unwrap());
-      return Scaling::Active(Active{
-        activity_timestamp: self.activity_timestamp,
-        deployment: self.deployment.clone(),
-      });
+impl State {
+  pub async fn scale_up(self) -> State {
+    match self{
+      State::Inactive(val) => {
+        // let deployment_name = val.deployment.metadata.name.clone().unwrap();
+        let deployment_name = val.deployment.clone();
+        info!("scaling up {}",deployment_name);
+        let ts = get_epoch_seconds();
+        let patch = serde_json::json!({
+          "metadata":{
+            "name": deployment_name
+          },
+          "spec": {
+              "replicas": 1
+          }
+        });
+        let params = PatchParams::apply(&deployment_name);
+        let patch = kube::api::Patch::Apply(&patch);
+        let config = Config::from_cluster_env().unwrap();
+        let service = Service::try_from(config).unwrap();
+        let client: kube::Client = Client::new(service);
+        let namespace = env_var!(required "KUBERNETES_NAMESPACE");
+        let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
+        info!("running async block");
+        let scale = deployments.get_scale(&deployment_name).await.unwrap();
+        info!("scale before: {:?}",scale);
+        let scale_after = deployments.patch_scale(&deployment_name,&params,&patch).await.unwrap();
+        info!("scale after: {:?}",scale_after);
+        info!("async block done");
+        return State::Active(
+          StateValue{
+            activity_timestamp: ts,
+            deployment: val.deployment,
+          }
+        );
+      },
+      State::Active(val) => {
+        return State::Active(val);
+      },
     }
   }
-  pub fn on_scale_up(&self, event: ScaleUp ) -> Active {
-    //noop
-    Active{
-      activity_timestamp: event.activity_timestamp,
-      deployment: self.deployment.clone(),
-    }
-  }
-}
-impl Inactive {
-  pub fn on_scale_down(&self, event: ScaleDown) -> Inactive {
-    //noop
-    Inactive{
-      activity_timestamp: event.activity_timestamp,
-      deployment: self.deployment.clone(),
-    }
-  }
-  pub fn on_scale_up(&self, event: ScaleUp ) -> Active {
-    let deployment_name = self.deployment.metadata.name.clone().unwrap();
-    info!("scaling up {}",deployment_name);
-    let patch = serde_json::json!({
-        "spec": {
-            "replicas": 1
-        }
-    });
-    let params = PatchParams::apply(&deployment_name);
-    let patch = kube::api::Patch::Apply(&patch);
-    {
-      let config = Config::from_cluster_env().unwrap();
-      let service = Service::try_from(config).unwrap();
-      let client: kube::Client = Client::new(service);
-      let namespace = env_var!(required "KUBERNETES_NAMESPACE");
-      let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
-      let _ignore = deployments.patch_scale(&deployment_name,&params,&patch);
-    }
-    Active{
-      activity_timestamp: event.activity_timestamp,
-      deployment: self.deployment.clone(),
+  pub async fn scale_down(self) -> State {
+    match self{
+      State::Inactive(val) => {
+        return State::Inactive(val);
+      },
+      State::Active(val) => {
+        //TODO scale down
+        return State::Inactive(val);
+      },
     }
   }
 }
 
-pub static KNOWN_SCALINGS: Lazy<Mutex<HashMap<String,Scaling>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
+pub static KNOWN_STATES: Lazy<Mutex<HashMap<String,State>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 pub static SCALE_TARGETS: Lazy<Mutex<HashMap<String,String>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 
 pub fn get_epoch_seconds() -> u64 {
@@ -123,16 +108,11 @@ pub async fn run(){
     for deployment in deployments.list(&lp).await.unwrap() {
       let deployment_name = Resource::name(&deployment).clone();
       //acquire shared objects
-      let mut known_scalings = KNOWN_SCALINGS.lock().unwrap();
+      let mut known_scalings = KNOWN_STATES.lock().unwrap();
       let mut scale_targets = SCALE_TARGETS.lock().unwrap();
       if !known_scalings.contains_key(&deployment_name) {
         info!("Found Deployment: {}", deployment_name);
-        let scaling = Scaling::Inactive(
-          Inactive{
-            activity_timestamp: get_epoch_seconds(),
-            deployment: deployment.clone(),
-          }
-        );
+        let state_inactive = State::new(deployment_name.clone());
         let mut has_queues = false;
         let d_name = deployment_name.clone();
         let labels = deployment.metadata.labels.unwrap();
@@ -152,7 +132,7 @@ pub async fn run(){
           }
         }
         if has_queues {
-          known_scalings.insert(deployment_name,scaling);
+          known_scalings.insert(deployment_name,state_inactive);
         }
       }
     //   let patch = serde_json::json!({
