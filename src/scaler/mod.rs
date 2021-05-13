@@ -1,4 +1,4 @@
-use kube::{api::{Api, ListParams, Resource}, Client};
+use kube::{api::{Api, ListParams, Resource, Patch}, Client};
 use kube::Service;
 use kube::config::Config;
 use kube::api::PatchParams;
@@ -15,6 +15,7 @@ const COOLDOWN_PERIOD_SECONDS: u64 = 60;
 #[derive(Clone,Debug,PartialEq)]
 pub struct StateValue{
   activity_timestamp: u64,
+  outgoing_total_count: i64,
   deployment: String,
 }
 #[derive(Clone,Debug,PartialEq)]
@@ -26,43 +27,33 @@ impl State {
   pub fn new(deployment: String) -> State {
     State::Inactive(StateValue{ 
       activity_timestamp: get_epoch_seconds(),
+      outgoing_total_count: 0,
       deployment: deployment,
     })
   }
 }
 
 impl State {
-  pub async fn scale_up(self) -> State {
+  pub async fn scale_up(self, outgoing_total_count: i64) -> State {
     match self{
       State::Inactive(val) => {
-        // let deployment_name = val.deployment.metadata.name.clone().unwrap();
         let deployment_name = val.deployment.clone();
         info!("scaling up {}",deployment_name);
-        let ts = get_epoch_seconds();
-        let patch = serde_json::json!({
-          "metadata":{
-            "name": deployment_name
-          },
-          "spec": {
-              "replicas": 1
-          }
-        });
-        let params = PatchParams::apply(&deployment_name);
-        let patch = kube::api::Patch::Apply(&patch);
         let config = Config::from_cluster_env().unwrap();
         let service = Service::try_from(config).unwrap();
         let client: kube::Client = Client::new(service);
         let namespace = env_var!(required "KUBERNETES_NAMESPACE");
         let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
-        info!("running async block");
-        let scale = deployments.get_scale(&deployment_name).await.unwrap();
-        info!("scale before: {:?}",scale);
-        let scale_after = deployments.patch_scale(&deployment_name,&params,&patch).await.unwrap();
-        info!("scale after: {:?}",scale_after);
-        info!("async block done");
+        let ts = get_epoch_seconds();
+        let scale_spec = serde_json::json!({
+          "spec": { "replicas": 1 }
+        });
+        let patch_params = PatchParams::default();
+        let scale_after = deployments.patch_scale(&deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await;
         return State::Active(
           StateValue{
             activity_timestamp: ts,
+            outgoing_total_count: outgoing_total_count,
             deployment: val.deployment,
           }
         );
@@ -72,14 +63,52 @@ impl State {
       },
     }
   }
-  pub async fn scale_down(self) -> State {
+  pub async fn scale_down(self, outgoing_total_count: i64) -> State {
     match self{
       State::Inactive(val) => {
         return State::Inactive(val);
       },
       State::Active(val) => {
-        //TODO scale down
-        return State::Inactive(val);
+        let deployment_name = val.deployment.clone();
+        let ts = get_epoch_seconds();
+        if val.outgoing_total_count > outgoing_total_count {
+          //message processing still happening
+          return State::Active(StateValue{
+            activity_timestamp: ts,
+            outgoing_total_count: outgoing_total_count,
+            deployment: val.deployment,
+          });
+        }
+        if val.activity_timestamp + COOLDOWN_PERIOD_SECONDS > ts {
+          //honor cooldown phase
+          return State::Active(val);
+        }
+        info!("scaling down {}",deployment_name);
+        let config = Config::from_cluster_env().unwrap();
+        let service = Service::try_from(config).unwrap();
+        let client: kube::Client = Client::new(service);
+        let namespace = env_var!(required "KUBERNETES_NAMESPACE");
+        let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
+        let scale_spec = serde_json::json!({
+          "spec": { "replicas": 0 }
+        });
+        let patch_params = PatchParams::default();
+        let scale_after = deployments.patch_scale(&deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await;
+        match scale_after {
+          Ok(_state) => {
+            return State::Inactive(
+              StateValue{
+                activity_timestamp: ts,
+                outgoing_total_count: outgoing_total_count,
+                deployment: val.deployment,
+              }
+            );
+          },
+          Err(err) => {
+            error!("scale down failed: {}",err);
+            return State::Active(val);
+          }
+        }
       },
     }
   }
@@ -100,7 +129,7 @@ pub async fn run(){
   let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
   let lp = ListParams::default()
     .labels("tibcoems.apimeister.com/scaling=true");
-  let mut interval = time::interval(Duration::from_millis(60000));
+  let mut interval = time::interval(Duration::from_millis(12000));
   interval.tick().await;
 
   loop{

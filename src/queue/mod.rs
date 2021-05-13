@@ -171,6 +171,10 @@ pub async fn watch_queues_status() -> Result<()>{
         Some(val) => val,
         None => 0,
       };
+      let outgoing_total_count: i64 = match qinfo.outgoing_total_count {
+        Some(val) => val,
+        None => 0,
+      };
       //update prometheus
       {
         let mut c_map = QUEUES.lock().unwrap();
@@ -180,7 +184,7 @@ pub async fn watch_queues_status() -> Result<()>{
       {
         let scaling = env_var!(optional "ENABLE_SCALING", default:"FALSE");
         if scaling == "TRUE" {
-          scale(&queue_name, pending_messages).await;
+          scale(&queue_name, pending_messages, outgoing_total_count).await;
         }
       }
       //update k8s state
@@ -247,32 +251,46 @@ pub async fn watch_queues_status() -> Result<()>{
   }
 }
 
-fn get_target(queue_name: &str) -> String {
+fn get_target(queue_name: &str) -> Option<String> {
   let targets = super::scaler::SCALE_TARGETS.lock().unwrap();
-  let x = targets.get(queue_name).unwrap();  
-  x.to_string()  
+  match targets.get(queue_name) {
+    Some(val) => Some(val.to_string()),
+    None => None,
+  }
 }
-fn get_state(deployment_name: &str) -> State {
+fn get_state(deployment_name: &str) -> Option<State> {
   let states = super::scaler::KNOWN_STATES.lock().unwrap();
-  let x = states.get(deployment_name).unwrap();  
-  x.clone()  
+  match states.get(deployment_name) {
+    Some(val) => Some(val.clone()),
+    None => None,
+  }
 }
 fn insert_state(deployment_name: String, state: State){
   let mut states = super::scaler::KNOWN_STATES.lock().unwrap();
   states.insert(deployment_name, state);
 }
-async fn scale(queue_name: &str, pending_messages: i64) {
-  let deployment_name = get_target(queue_name);
-  let deployment_state: State = get_state(&deployment_name);
-  if pending_messages > 0 {
-    //scale up
-    let s2 = deployment_state.scale_up().await;
-    insert_state(deployment_name, s2);
-  }else{
-    //scale down
-    let s2 = deployment_state.scale_down().await;
-    insert_state(deployment_name, s2)
-  }  
+async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i64) {
+  let deployment_name: Option<String> = get_target(queue_name);
+  match deployment_name {
+    Some(deployment) => {
+      let deployment_state: Option<State> = get_state(&deployment);
+      match deployment_state {
+        Some(state) => {
+          if pending_messages > 0 {
+            //scale up
+            let s2 = state.scale_up(outgoing_total_count).await;
+            insert_state(deployment, s2);
+          }else{
+            //scale down
+            let s2 = state.scale_down(outgoing_total_count).await;
+            insert_state(deployment, s2)
+          }
+        },
+        None => {},
+      }
+    },
+    None => {},
+  }
 }
 
 async fn get_queue_client() -> Api<Queue>{
