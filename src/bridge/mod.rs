@@ -30,16 +30,7 @@ pub struct BridgeSpec {
 pub static KNOWN_BRIDGES: Lazy<Mutex<HashMap<String, Bridge>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 
 ///used for sending admin operations
-static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(init_admin_connection()));
-
-fn init_admin_connection() -> Session{
-  let username = env_var!(required "USERNAME");
-  let password = env_var!(required "PASSWORD");
-  let server_url = env_var!(required "SERVER_URL");
-  let conn = tibco_ems::admin::connect(&server_url, &username, &password).unwrap();
-  info!("creating admin connection");
-  conn.session().unwrap()
-}
+static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
 
 pub async fn watch_bridges() -> Result<()>{
   let crds: Api<Bridge> = get_bridge_client().await;
