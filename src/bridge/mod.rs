@@ -1,7 +1,7 @@
 use core::convert::TryFrom;
 use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
-use kube::{api::{Api, ListParams, Resource}, Client};
+use kube::{api::{Api, ListParams, ResourceExt}, Client};
 use kube::api::WatchEvent;
 use kube::Service;
 use kube_derive::CustomResource;
@@ -53,7 +53,7 @@ pub async fn watch_bridges() -> Result<()>{
                 Some(status) => {
                   match status {
                     WatchEvent::Added(bridge) => {
-                      let bname = Resource::name(&bridge);
+                      let bname = ResourceExt::name(&bridge);
                       {
                         let mut res = KNOWN_BRIDGES.lock().unwrap();
                         match res.get(&bname) {
@@ -67,15 +67,15 @@ pub async fn watch_bridges() -> Result<()>{
                           },
                         }
                       }
-                      last_version = Resource::resource_ver(&bridge).unwrap();
+                      last_version = ResourceExt::resource_version(&bridge).unwrap();
                     },
                     WatchEvent::Modified(bridge) => {
-                      info!("Modified {}", Resource::name(&bridge));
+                      info!("Modified {}", ResourceExt::name(&bridge));
                       create_bridge(&bridge);
-                      last_version = Resource::resource_ver(&bridge).unwrap();          
+                      last_version = ResourceExt::resource_version(&bridge).unwrap();          
                     }
                     WatchEvent::Deleted(bridge) => {
-                      let bname = Resource::name(&bridge);
+                      let bname = ResourceExt::name(&bridge);
                       let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
                       if do_not_delete == "TRUE" {
                         warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",bname);
@@ -84,7 +84,7 @@ pub async fn watch_bridges() -> Result<()>{
                       }
                       let mut res = KNOWN_BRIDGES.lock().unwrap();
                       res.remove(&bname);
-                      last_version = Resource::resource_ver(&bridge).unwrap();                   
+                      last_version = ResourceExt::resource_version(&bridge).unwrap();                   
                     },
                     WatchEvent::Error(e) => {
                       if e.code == 410 && e.reason=="Expired" {

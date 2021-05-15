@@ -1,4 +1,4 @@
-use kube::{api::{Api, ListParams, Resource, Patch}, Client};
+use kube::{api::{Api, ListParams, ResourceExt, Patch}, Client};
 use kube::Service;
 use kube::config::Config;
 use kube::api::PatchParams;
@@ -50,13 +50,28 @@ impl State {
         });
         let patch_params = PatchParams::default();
         let scale_after = deployments.patch_scale(&deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await;
-        return State::Active(
-          StateValue{
-            activity_timestamp: ts,
-            outgoing_total_count: outgoing_total_count,
-            deployment: val.deployment,
-          }
-        );
+        match scale_after {
+          Ok(_val) => {
+            return State::Active(
+              StateValue{
+                activity_timestamp: ts,
+                outgoing_total_count: outgoing_total_count,
+                deployment: val.deployment,
+              }
+            );
+    
+          },
+          Err(err) => {
+            error!("scale up failed: {:?}",err);
+            return State::Inactive(
+              StateValue{
+                activity_timestamp: ts,
+                outgoing_total_count: outgoing_total_count,
+                deployment: val.deployment,
+              }
+            );
+          },
+        }
       },
       State::Active(val) => {
         return State::Active(val);
@@ -135,7 +150,7 @@ pub async fn run(){
   loop{
     interval.tick().await;
     for deployment in deployments.list(&lp).await.unwrap() {
-      let deployment_name = Resource::name(&deployment).clone();
+      let deployment_name = ResourceExt::name(&deployment).clone();
       //acquire shared objects
       let mut known_scalings = KNOWN_STATES.lock().unwrap();
       let mut scale_targets = SCALE_TARGETS.lock().unwrap();

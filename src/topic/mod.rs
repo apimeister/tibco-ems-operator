@@ -1,4 +1,4 @@
-use kube::{api::{Api, ListParams, Resource, PostParams}, Client};
+use kube::{api::{Api, ListParams, ResourceExt, PostParams}, Client};
 use kube::api::WatchEvent;
 use kube::Service;
 use core::convert::TryFrom;
@@ -73,7 +73,7 @@ pub async fn watch_topics() -> Result<()>{
                   match status {
                     WatchEvent::Added(mut topic) =>{
                       let topic_name = get_topic_name(&topic);
-                      let name = Resource::name(&topic);
+                      let name = ResourceExt::name(&topic);
                       {
                         let mut res = KNOWN_TOPICS.lock().unwrap();
                         match res.get(&topic_name) {
@@ -95,7 +95,7 @@ pub async fn watch_topics() -> Result<()>{
                         },
                         _ => {},
                       };
-                      last_version = Resource::resource_ver(&topic).unwrap();
+                      last_version = ResourceExt::resource_version(&topic).unwrap();
                     },
                     WatchEvent::Deleted(topic) =>{
                       let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
@@ -105,7 +105,7 @@ pub async fn watch_topics() -> Result<()>{
                       }else{
                         delete_topic(&topic);
                       }
-                      last_version = Resource::resource_ver(&topic).unwrap();
+                      last_version = ResourceExt::resource_version(&topic).unwrap();
                     },
                     WatchEvent::Error(e) => {
                       if e.code == 410 && e.reason=="Expired" {
@@ -197,7 +197,7 @@ pub async fn watch_topics_status() -> Result<()>{
             debug!("updating topic status for {}",obj_name);
             let updater: Api<Topic> = get_topic_client().await;
             let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
-            local_topic.metadata.resource_version=Resource::resource_ver(&latest_topic);
+            local_topic.metadata.resource_version=ResourceExt::resource_version(&latest_topic);
             let q_json = serde_json::to_string(&local_topic).unwrap();
             let pp = PostParams::default();
             let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
