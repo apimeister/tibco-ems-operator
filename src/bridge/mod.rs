@@ -1,18 +1,15 @@
-use core::convert::TryFrom;
 use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
 use kube::{api::{Api, ListParams, ResourceExt}, Client};
 use kube::api::WatchEvent;
-use kube::Service;
 use kube_derive::CustomResource;
-use kube::config::Config;
 use hyper::Result;
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use tibco_ems::DestinationType;
 use tibco_ems::Session;
 use tibco_ems::admin::BridgeInfo;
+use tibco_ems::Destination;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
@@ -121,9 +118,7 @@ pub async fn watch_bridges() -> Result<()>{
 }
 
 async fn get_bridge_client() -> Api<Bridge>{
-  let config = Config::infer().await.unwrap();
-  let service = Service::try_from(config).unwrap();
-  let client: kube::Client = Client::new(service);
+  let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Bridge> = Api::namespaced(client, &namespace);
   return crds;
@@ -134,27 +129,25 @@ fn create_bridge(bridge: &Bridge){
   info!("creating bridge {}",bname);
   let session = ADMIN_CONNECTION.lock().unwrap();
   let mut bridge_info = BridgeInfo{
-    source_name: bridge.spec.source_name.clone(),
-    source_type: DestinationType::Topic,
-    target_name: bridge.spec.target_name.clone(),
-    target_type: DestinationType::Queue,
+    source: Destination::Topic(bridge.spec.source_name.clone()),
+    target: Destination::Queue(bridge.spec.target_name.clone()),
     selector: None,
   };
   let mut source_type = bridge.spec.source_type.clone();
   source_type.make_ascii_uppercase();
   if source_type.starts_with("QUEUE") {
-    bridge_info.source_type = DestinationType::Queue;
+    bridge_info.source = Destination::Queue(bridge.spec.source_name.clone())
   }
   if source_type.starts_with("TOPIC") {
-    bridge_info.source_type = DestinationType::Topic;
+    bridge_info.source = Destination::Topic(bridge.spec.source_name.clone());
   }
   let mut target_type = bridge.spec.target_type.clone();
   target_type.make_ascii_uppercase();
   if target_type.starts_with("QUEUE") {
-    bridge_info.target_type = DestinationType::Queue;
+    bridge_info.target = Destination::Queue(bridge.spec.target_name.clone());
   }
   if target_type.starts_with("TOPIC") {
-    bridge_info.target_type = DestinationType::Topic;
+    bridge_info.target = Destination::Topic(bridge.spec.target_name.clone());
   }
   match bridge.spec.selector.clone() {
     Some(sel) => {
@@ -170,27 +163,25 @@ fn delete_bridge(bridge: &Bridge){
   info!("deleting bridge {}",bname);
   let session = ADMIN_CONNECTION.lock().unwrap();
   let mut bridge_info = BridgeInfo{
-    source_name: bridge.spec.source_name.clone(),
-    source_type: DestinationType::Topic,
-    target_name: bridge.spec.target_name.clone(),
-    target_type: DestinationType::Queue,
+    source: Destination::Topic(bridge.spec.source_name.clone()),
+    target: Destination::Queue(bridge.spec.target_name.clone()),
     selector: None,
   };
   let mut source_type = bridge.spec.source_type.clone();
   source_type.make_ascii_uppercase();
   if source_type.starts_with("QUEUE") {
-    bridge_info.source_type = DestinationType::Queue;
+    bridge_info.source = Destination::Queue(bridge.spec.source_name.clone());
   }
   if source_type.starts_with("TOPIC") {
-    bridge_info.source_type = DestinationType::Topic;
+    bridge_info.source = Destination::Topic(bridge.spec.source_name.clone());
   }
   let mut target_type = bridge.spec.target_type.clone();
   target_type.make_ascii_uppercase();
   if target_type.starts_with("QUEUE") {
-    bridge_info.target_type = DestinationType::Queue;
+    bridge_info.target = Destination::Queue(bridge.spec.target_name.clone());
   }
   if target_type.starts_with("TOPIC") {
-    bridge_info.target_type = DestinationType::Topic;
+    bridge_info.target = Destination::Topic(bridge.spec.target_name.clone());
   }
   tibco_ems::admin::delete_bridge(&session, &bridge_info);
 }

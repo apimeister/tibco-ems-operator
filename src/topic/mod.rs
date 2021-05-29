@@ -1,11 +1,8 @@
 use kube::{api::{Api, ListParams, ResourceExt, PostParams}, Client};
 use kube::api::WatchEvent;
-use kube::Service;
-use core::convert::TryFrom;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
-use kube::config::Config;
 use tokio::time::{self, Duration};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -218,9 +215,7 @@ pub async fn watch_topics_status() -> Result<()>{
 }
 
 async fn get_topic_client() -> Api<Topic>{
-  let config = Config::infer().await.unwrap();
-  let service = Service::try_from(config).unwrap();
-  let client: kube::Client = Client::new(service);
+  let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Topic> = Api::namespaced(client, &namespace);
   return crds;

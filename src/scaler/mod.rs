@@ -1,8 +1,5 @@
 use kube::{api::{Api, ListParams, ResourceExt, Patch}, Client};
-use kube::Service;
-use kube::config::Config;
 use kube::api::PatchParams;
-use core::convert::TryFrom;
 use k8s_openapi::api::apps::v1::Deployment;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -39,9 +36,7 @@ impl State {
       State::Inactive(val) => {
         let deployment_name = val.deployment.clone();
         info!("scaling up {}",deployment_name);
-        let config = Config::from_cluster_env().unwrap();
-        let service = Service::try_from(config).unwrap();
-        let client: kube::Client = Client::new(service);
+        let client = Client::try_default().await.expect("getting default client");
         let namespace = env_var!(required "KUBERNETES_NAMESPACE");
         let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
         let ts = get_epoch_seconds();
@@ -99,9 +94,7 @@ impl State {
           return State::Active(val);
         }
         info!("scaling down {}",deployment_name);
-        let config = Config::from_cluster_env().unwrap();
-        let service = Service::try_from(config).unwrap();
-        let client: kube::Client = Client::new(service);
+        let client = Client::try_default().await.expect("getting default client");
         let namespace = env_var!(required "KUBERNETES_NAMESPACE");
         let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
         let scale_spec = serde_json::json!({
@@ -137,9 +130,7 @@ pub fn get_epoch_seconds() -> u64 {
 }
 
 pub async fn run(){
-  let config = Config::infer().await.unwrap();
-  let service = Service::try_from(config).unwrap();
-  let client: kube::Client = Client::new(service);
+  let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
   let lp = ListParams::default()

@@ -1,10 +1,8 @@
 use kube::{api::{Api, ListParams, ResourceExt, PostParams}, Client};
 use kube::api::WatchEvent;
-use kube::Service;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
 use kube_derive::CustomResource;
-use kube::config::Config;
 use tokio::time::{self, Duration};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -12,7 +10,6 @@ use once_cell::sync::Lazy;
 use hyper::Result;
 use schemars::JsonSchema;
 use env_var::env_var;
-use core::convert::TryFrom;
 use tibco_ems::Session;
 use tibco_ems::admin::QueueInfo;
 use super::scaler::State;
@@ -285,9 +282,7 @@ async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i6
 }
 
 async fn get_queue_client() -> Api<Queue>{
-  let config = Config::infer().await.unwrap();
-  let service = Service::try_from(config).unwrap();
-  let client: kube::Client = Client::new(service);
+  let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Queue> = Api::namespaced(client, &namespace);
   return crds;

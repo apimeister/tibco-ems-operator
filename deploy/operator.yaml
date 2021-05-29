@@ -17,7 +17,8 @@ spec:
       serviceAccountName: tibco-ems-operator-account
       containers:
       - name: tibco-ems-operator
-        image: gcr.io/apimeister/tibco-ems-operator:dev
+        image: gcr.io/apimeister/tibco-ems-operator:latest
+        imagePullPolicy: Always
         resources:
           requests:
             memory: "20Mi"
@@ -30,8 +31,12 @@ spec:
         env:
           - name: KUBERNETES_SERVICE_HOST
             value: kubernetes.default.svc.cluster.local
+          - name: RUST_LOG
+            value: tibco_ems=info,tibco_ems_operator=trace,info
           - name: STATUS_REFRESH_IN_MS
             value: "10000"
+          - name: ENABLE_SCALING
+            value: "TRUE"
           - name: KUBERNETES_NAMESPACE
             valueFrom:
               fieldRef:
