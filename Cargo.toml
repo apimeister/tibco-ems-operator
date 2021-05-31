@@ -1,6 +1,6 @@
 [package]
 name = "tibco-ems-operator"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Jens Walter <jens@apimeister.com>"]
 edition = "2018"
 
