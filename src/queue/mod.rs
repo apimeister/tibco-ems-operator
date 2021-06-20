@@ -311,13 +311,19 @@ fn get_obj_name_from_queue(queue: &Queue) -> String {
 fn create_queue(queue: &mut Queue){
   let qname = get_queue_name(queue);
 
-  let queue_info = QueueInfo{
+  let mut queue_info = QueueInfo{
     name: qname,
     max_bytes: queue.spec.maxbytes,
     max_messages: queue.spec.maxmsgs,
     global: queue.spec.global,
     ..Default::default()
   };
+  match queue.spec.expiration {
+    Some(val) => {
+      queue_info.expiry_override = Some(val as i64);
+    },
+    None => {},
+  }
   let session = ADMIN_CONNECTION.lock().unwrap();
   tibco_ems::admin::create_queue(&session, &queue_info);
 

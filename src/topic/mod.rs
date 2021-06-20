@@ -244,13 +244,19 @@ fn get_obj_name_from_topic(topic: &Topic) -> String {
 fn create_topic(topic: &mut  Topic){
   let tname = get_topic_name(topic);
 
-  let topic_info = TopicInfo{
+  let mut topic_info = TopicInfo{
     name: tname,
     max_bytes: topic.spec.maxbytes,
     max_messages: topic.spec.maxmsgs,
     global: topic.spec.global,
     ..Default::default()
   };
+  match topic.spec.expiration {
+    Some(val) => {
+      topic_info.expiry_override = Some(val as i64);
+    },
+    None => {},
+  }
   let session = ADMIN_CONNECTION.lock().unwrap();
   tibco_ems::admin::create_topic(&session, &topic_info);
 

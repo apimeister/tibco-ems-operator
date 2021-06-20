@@ -150,7 +150,7 @@ pub async fn run(){
         let state_inactive = State::new(deployment_name.clone());
         let mut has_queues = false;
         let d_name = deployment_name.clone();
-        let labels = deployment.metadata.labels.unwrap();
+        let labels = deployment.metadata.labels;
         for (key,val) in labels {
           if key.starts_with("tibcoems.apimeister.com/queue") {
             //check known queues
