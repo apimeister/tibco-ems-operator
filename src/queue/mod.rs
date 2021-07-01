@@ -153,86 +153,93 @@ pub async fn watch_queues_status() -> Result<()>{
       let session = QUEUE_ADMIN_CONNECTION.lock().unwrap();
       result = tibco_ems::admin::list_all_queues(&session);
     }
-    for qinfo in &result {
-      let queue_name = qinfo.name.clone();
-      let pending_messages: i64 = match qinfo.pending_messages {
-        Some(val) => val,
-        None => 0,
-      };
-      let outgoing_total_count: i64 = match qinfo.outgoing_total_count {
-        Some(val) => val,
-        None => 0,
-      };
-      //update prometheus
-      {
-        let mut c_map = QUEUES.lock().unwrap();
-        c_map.insert(queue_name.clone(),qinfo.clone());
-      }
-      //update scaler
-      {
-        let scaling = env_var!(optional "ENABLE_SCALING", default:"FALSE");
-        if scaling == "TRUE" {
-          scale(&queue_name, pending_messages, outgoing_total_count).await;
-        }
-      }
-      //update k8s state
-      if read_only == "FALSE" {
-        let mut q : Option<Queue> = None;
-        {
-          let mut res = KNOWN_QUEUES.lock().unwrap();
-          match res.get(&queue_name) {
-            Some(queue) =>{
-              let mut local_q = queue.clone();
-              match &queue.status {
-                Some(status) => {
-                  let mut consumer_count = 0;
-                  match qinfo.consumer_count {
-                    Some(val) => {
-                      consumer_count = val;
-                    },
-                    None =>{},
-                  }
-                  if status.pendingMessages != pending_messages 
-                    || status.consumerCount != consumer_count {
-                    local_q.status = Some(QueueStatus{
-                        pendingMessages: pending_messages,
-                        consumerCount: consumer_count});
-                    q = Some(local_q.clone());  
-                    res.insert(qinfo.name.to_owned(),local_q);
-                  }
-                },
-                None => {
-                  local_q.status = Some(QueueStatus{
-                    pendingMessages: qinfo.pending_messages.unwrap(),
-                    consumerCount: qinfo.consumer_count.unwrap()});
-                  q = Some(local_q.clone());  
-                  res.insert(qinfo.name.to_owned(),local_q);
-                },
-              }
-            },
-            None => {},
+    match result {
+      Ok(res) => {
+        for qinfo in &res {
+          let queue_name = qinfo.name.clone();
+          let pending_messages: i64 = match qinfo.pending_messages {
+            Some(val) => val,
+            None => 0,
+          };
+          let outgoing_total_count: i64 = match qinfo.outgoing_total_count {
+            Some(val) => val,
+            None => 0,
+          };
+          //update prometheus
+          {
+            let mut c_map = QUEUES.lock().unwrap();
+            c_map.insert(queue_name.clone(),qinfo.clone());
           }
-        }
-        match q {
-          Some(mut local_q) => {
-            let obj_name = get_obj_name_from_queue(&local_q);
-            debug!("updating queue status for {}",obj_name);
-            let updater: Api<Queue> = get_queue_client().await;
-            let latest_queue: Queue = updater.get(&obj_name).await.unwrap();
-            local_q.metadata.resource_version=ResourceExt::resource_version(&latest_queue);
-            let q_json = serde_json::to_string(&local_q).unwrap();
-            let pp = PostParams::default();
-            let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
-            match result {
-              Ok(_ignore) => {},
-              Err(err) => {
-                error!("error while updating queue object");
-                error!("{:?}",err);
-              },
+          //update scaler
+          {
+            let scaling = env_var!(optional "ENABLE_SCALING", default:"FALSE");
+            if scaling == "TRUE" {
+              scale(&queue_name, pending_messages, outgoing_total_count).await;
             }
-          },
-          None => {},
-        }
+          }
+          //update k8s state
+          if read_only == "FALSE" {
+            let mut q : Option<Queue> = None;
+            {
+              let mut res = KNOWN_QUEUES.lock().unwrap();
+              match res.get(&queue_name) {
+                Some(queue) =>{
+                  let mut local_q = queue.clone();
+                  match &queue.status {
+                    Some(status) => {
+                      let mut consumer_count = 0;
+                      match qinfo.consumer_count {
+                        Some(val) => {
+                          consumer_count = val;
+                        },
+                        None =>{},
+                      }
+                      if status.pendingMessages != pending_messages 
+                        || status.consumerCount != consumer_count {
+                        local_q.status = Some(QueueStatus{
+                            pendingMessages: pending_messages,
+                            consumerCount: consumer_count});
+                        q = Some(local_q.clone());  
+                        res.insert(qinfo.name.to_owned(),local_q);
+                      }
+                    },
+                    None => {
+                      local_q.status = Some(QueueStatus{
+                        pendingMessages: qinfo.pending_messages.unwrap(),
+                        consumerCount: qinfo.consumer_count.unwrap()});
+                      q = Some(local_q.clone());  
+                      res.insert(qinfo.name.to_owned(),local_q);
+                    },
+                  }
+                },
+                None => {},
+              }
+            }
+            match q {
+              Some(mut local_q) => {
+                let obj_name = get_obj_name_from_queue(&local_q);
+                debug!("updating queue status for {}",obj_name);
+                let updater: Api<Queue> = get_queue_client().await;
+                let latest_queue: Queue = updater.get(&obj_name).await.unwrap();
+                local_q.metadata.resource_version=ResourceExt::resource_version(&latest_queue);
+                let q_json = serde_json::to_string(&local_q).unwrap();
+                let pp = PostParams::default();
+                let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
+                match result {
+                  Ok(_ignore) => {},
+                  Err(err) => {
+                    error!("error while updating queue object");
+                    error!("{:?}",err);
+                  },
+                }
+              },
+              None => {},
+            }
+          }
+        }    
+      },
+      Err(_err) => {
+        panic!("failed to retrieve queue information");
       }
     }
     interval.tick().await;
