@@ -15,7 +15,7 @@ COPY --from=emslibs /opt/tibco/ems/8.6/lib/libtibems.so /lib64/libtibems.so
 RUN cargo install --path .
 
 # Bundle Stage
-FROM centos as final
+FROM rockylinux/rockylinux as final
 RUN dnf -y update && dnf clean all
 COPY --from=emslibs /opt/tibco/ems/8.6/lib/libtibems.so /lib64/libtibems.so
 COPY --from=builder /usr/local/cargo/bin/tibco-ems-operator .

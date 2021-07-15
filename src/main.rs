@@ -4,6 +4,8 @@ use hyper::header::CONTENT_TYPE;
 use tibco_ems::admin::QueueInfo;
 use tibco_ems::admin::TopicInfo;
 use tibco_ems::Session;
+use std::panic;
+use std::process;
 
 mod queue;
 mod topic;
@@ -227,6 +229,14 @@ pub fn init_admin_connection() -> Session{
 async fn main() {
   env_logger::init();
   info!("starting tibco-ems-operator");
+
+  //add panic hook to shutdown engine on error
+  let orig_hook = panic::take_hook();
+  panic::set_hook(Box::new(move |panic_info| {
+      error!("receiving panic hook, shutting down engine");
+      orig_hook(panic_info);
+      process::exit(1);
+  }));
 
   let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
   if read_only == "FALSE" {

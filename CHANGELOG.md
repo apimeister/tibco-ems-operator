@@ -1,3 +1,8 @@
+# tibco-ems-operator:39/0.6.0/2021-07-15
+
+* shutdown operator on panic
+* switch base image to rockylinux
+
 # tibco-ems-operator:38/0.5.0/2021-07-01
 
 * panic on EMS disconnect 
