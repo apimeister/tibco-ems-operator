@@ -332,7 +332,16 @@ fn create_queue(queue: &mut Queue){
     None => {},
   }
   let session = ADMIN_CONNECTION.lock().unwrap();
-  tibco_ems::admin::create_queue(&session, &queue_info);
+  let result = tibco_ems::admin::create_queue(&session, &queue_info);
+  match result {
+    Ok(_) => {
+      debug!("queue created successful");
+    },
+    Err(err) => {
+      error!("failed to create queue: {:?}",err);
+      panic!("failed to create queue");
+    },
+  }
 
   //propagate defaults
   match queue.spec.maxmsgs {
@@ -357,5 +366,14 @@ fn delete_queue(queue: &Queue){
   let qname = get_queue_name(queue);
   info!("deleting queue {}", qname);
   let session = ADMIN_CONNECTION.lock().unwrap();
-  tibco_ems::admin::delete_queue(&session, &qname);
+  let result = tibco_ems::admin::delete_queue(&session, &qname);
+  match result {
+    Ok(_) => {
+      debug!("queue deleted");
+    },
+    Err(err) => {
+      error!("failed to delete queue: {:?}",err);
+      panic!("failed to delete queue");
+    },
+  }
 }

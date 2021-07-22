@@ -1,3 +1,10 @@
+# tibco-ems-operator:40/0.7.0/2021-07-22
+
+* honor initial replica value on k8s deployments
+* handle create/delete queue errors
+* handle create/delete topic errors
+* handle create/delete bridge errors
+
 # tibco-ems-operator:39/0.6.0/2021-07-15
 
 * shutdown operator on panic

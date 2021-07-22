@@ -145,9 +145,46 @@ pub async fn run(){
       //acquire shared objects
       let mut known_scalings = KNOWN_STATES.lock().unwrap();
       let mut scale_targets = SCALE_TARGETS.lock().unwrap();
-      if !known_scalings.contains_key(&deployment_name) {
+      // check if we already know about this deployment
+      if known_scalings.contains_key(&deployment_name) {
+        let state = known_scalings.get(&deployment_name).unwrap();
+        //check replica count and create new state object
+        let deployment_state: State;
+        let replica_count = deployment.spec.unwrap().replicas.unwrap();
+        match (state,replica_count) {
+          (State::Active(val), 0) => {
+            deployment_state = State::Inactive(StateValue{
+              activity_timestamp: get_epoch_seconds(),
+              outgoing_total_count:  val.outgoing_total_count,
+              deployment: deployment_name.clone(),
+            });
+          },
+          (State::Inactive(val), 1) => {
+            deployment_state = State::Active(StateValue{
+              activity_timestamp: get_epoch_seconds(),
+              outgoing_total_count:  val.outgoing_total_count,
+              deployment: deployment_name.clone(),
+            });
+          },
+          _ => {
+            deployment_state = state.clone();
+          }
+        }
+        known_scalings.insert(deployment_name,deployment_state);
+      }else{
         info!("Found Deployment: {}", deployment_name);
-        let state_inactive = State::new(deployment_name.clone());
+        //check replica count and create new state object
+        let deployment_state: State;
+        let replica_count = deployment.spec.unwrap().replicas.unwrap();
+        if replica_count == 0 {
+          deployment_state = State::new(deployment_name.clone());
+        }else{
+          deployment_state = State::Active(StateValue{
+            activity_timestamp: get_epoch_seconds(),
+            outgoing_total_count: 0,
+            deployment: deployment_name.clone(),
+          });
+        }
         let mut has_queues = false;
         let d_name = deployment_name.clone();
         let labels = deployment.metadata.labels;
@@ -167,7 +204,7 @@ pub async fn run(){
           }
         }
         if has_queues {
-          known_scalings.insert(deployment_name,state_inactive);
+          known_scalings.insert(deployment_name,deployment_state);
         }
       }
     //   let patch = serde_json::json!({

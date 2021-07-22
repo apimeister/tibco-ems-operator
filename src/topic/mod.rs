@@ -265,7 +265,16 @@ fn create_topic(topic: &mut  Topic){
     None => {},
   }
   let session = ADMIN_CONNECTION.lock().unwrap();
-  tibco_ems::admin::create_topic(&session, &topic_info);
+  let result = tibco_ems::admin::create_topic(&session, &topic_info);
+  match result {
+    Ok(_) => {
+      debug!("topic created successful");
+    },
+    Err(err) => {
+      error!("failed to create topic: {:?}",err);
+      panic!("failed to create topic");
+    },
+  }
 
   //propagate defaults
   match topic.spec.maxmsgs {
@@ -289,5 +298,14 @@ fn delete_topic(topic: &Topic){
   info!("deleting topic {}", tname);
 
   let session = ADMIN_CONNECTION.lock().unwrap();
-  tibco_ems::admin::delete_topic(&session, &tname);
+  let result = tibco_ems::admin::delete_topic(&session, &tname);
+  match result {
+    Ok(_) => {
+      debug!("topic deleted");
+    },
+    Err(err) => {
+      error!("failed to delete topic: {:?}",err);
+      panic!("failed to delete topic");
+    },
+  }
 }

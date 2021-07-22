@@ -155,7 +155,16 @@ fn create_bridge(bridge: &Bridge){
     },
     None => {},
   }
-  tibco_ems::admin::create_bridge(&session, &bridge_info);
+  let result = tibco_ems::admin::create_bridge(&session, &bridge_info);
+  match result {
+    Ok(_) => {
+      debug!("bridge created successful");
+    },
+    Err(err) => {
+      error!("failed to create bridge: {:?}",err);
+      panic!("failed to create bridge");
+    },
+  }
 }
 
 fn delete_bridge(bridge: &Bridge){
@@ -183,5 +192,14 @@ fn delete_bridge(bridge: &Bridge){
   if target_type.starts_with("TOPIC") {
     bridge_info.target = Destination::Topic(bridge.spec.target_name.clone());
   }
-  tibco_ems::admin::delete_bridge(&session, &bridge_info);
+  let result = tibco_ems::admin::delete_bridge(&session, &bridge_info);
+  match result {
+    Ok(_) => {
+      debug!("bridge deleted");
+    },
+    Err(err) => {
+      error!("failed to delete bridge: {:?}",err);
+      panic!("failed to delete bridge");
+    },
+  }
 }
