@@ -1,3 +1,8 @@
+# tibco-ems-operator:41/0.8.0/2021-08-01
+
+* prevent scale down while engine is still consuming messages
+* support for scaling with multiple queues
+
 # tibco-ems-operator:40/0.7.0/2021-07-22
 
 * honor initial replica value on k8s deployments

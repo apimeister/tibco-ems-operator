@@ -9,10 +9,13 @@ use std::time::SystemTime;
 
 const COOLDOWN_PERIOD_SECONDS: u64 = 60;
 
+pub type StateTrigger = (String, i64);
+type StateTriggerMap = HashMap<String, i64>;
+
 #[derive(Clone,Debug,PartialEq)]
 pub struct StateValue{
   activity_timestamp: u64,
-  outgoing_total_count: i64,
+  trigger: StateTriggerMap,
   deployment: String,
 }
 #[derive(Clone,Debug,PartialEq)]
@@ -21,17 +24,17 @@ pub enum State{
   Active(StateValue),
 }
 impl State {
-  pub fn new(deployment: String) -> State {
+  pub fn new(deployment: String,trigger: StateTriggerMap) -> State {
     State::Inactive(StateValue{ 
       activity_timestamp: get_epoch_seconds(),
-      outgoing_total_count: 0,
+      trigger: trigger,
       deployment: deployment,
     })
   }
 }
 
 impl State {
-  pub async fn scale_up(self, outgoing_total_count: i64) -> State {
+  pub async fn scale_up(self, trigger: StateTrigger) -> State {
     match self{
       State::Inactive(val) => {
         let deployment_name = val.deployment.clone();
@@ -45,12 +48,14 @@ impl State {
         });
         let patch_params = PatchParams::default();
         let scale_after = deployments.patch_scale(&deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await;
+        let mut trigger_map = val.trigger.clone();
+        trigger_map.insert(trigger.0, trigger.1);
         match scale_after {
           Ok(_val) => {
             return State::Active(
               StateValue{
                 activity_timestamp: ts,
-                outgoing_total_count: outgoing_total_count,
+                trigger: trigger_map,
                 deployment: val.deployment,
               }
             );
@@ -61,7 +66,7 @@ impl State {
             return State::Inactive(
               StateValue{
                 activity_timestamp: ts,
-                outgoing_total_count: outgoing_total_count,
+                trigger: trigger_map,
                 deployment: val.deployment,
               }
             );
@@ -69,11 +74,20 @@ impl State {
         }
       },
       State::Active(val) => {
-        return State::Active(val);
+        let mut trigger_map = val.trigger.clone();
+        let ts = get_epoch_seconds();
+        trigger_map.insert(trigger.0,trigger.1);
+        return State::Active(
+          StateValue{
+            activity_timestamp: ts,
+            trigger: trigger_map,
+            deployment: val.deployment,
+          }
+        );
       },
     }
   }
-  pub async fn scale_down(self, outgoing_total_count: i64) -> State {
+  pub async fn scale_down(self, trigger: StateTrigger) -> State {
     match self{
       State::Inactive(val) => {
         return State::Inactive(val);
@@ -81,16 +95,24 @@ impl State {
       State::Active(val) => {
         let deployment_name = val.deployment.clone();
         let ts = get_epoch_seconds();
-        if val.outgoing_total_count > outgoing_total_count {
-          //message processing still happening
+        let trigger_name = trigger.0.clone();
+        let trigger_value = trigger.1.clone();
+        let mut trigger_map = val.trigger.clone();
+        let trigger_map_reader = val.trigger.clone();
+        let old_out_total = trigger_map_reader.get(&trigger_name).unwrap();
+        trigger_map.insert(trigger_name,trigger_value);
+        if old_out_total < &trigger_value {
+          debug!("{}: stile processing message while scale_down() was called",trigger.0);
+          trigger_map.insert(trigger.0.clone(),trigger.1);
           return State::Active(StateValue{
             activity_timestamp: ts,
-            outgoing_total_count: outgoing_total_count,
+            trigger: trigger_map.clone(),
             deployment: val.deployment,
           });
         }
         if val.activity_timestamp + COOLDOWN_PERIOD_SECONDS > ts {
           //honor cooldown phase
+          debug!("{}: still in cooldown phase",trigger.0);
           return State::Active(val);
         }
         info!("scaling down {}",deployment_name);
@@ -107,7 +129,7 @@ impl State {
             return State::Inactive(
               StateValue{
                 activity_timestamp: ts,
-                outgoing_total_count: outgoing_total_count,
+                trigger: trigger_map.clone(),
                 deployment: val.deployment,
               }
             );
@@ -155,14 +177,14 @@ pub async fn run(){
           (State::Active(val), 0) => {
             deployment_state = State::Inactive(StateValue{
               activity_timestamp: get_epoch_seconds(),
-              outgoing_total_count:  val.outgoing_total_count,
+              trigger:  val.trigger.clone(),
               deployment: deployment_name.clone(),
             });
           },
           (State::Inactive(val), 1) => {
             deployment_state = State::Active(StateValue{
               activity_timestamp: get_epoch_seconds(),
-              outgoing_total_count:  val.outgoing_total_count,
+              trigger:  val.trigger.clone(),
               deployment: deployment_name.clone(),
             });
           },
@@ -173,20 +195,9 @@ pub async fn run(){
         known_scalings.insert(deployment_name,deployment_state);
       }else{
         info!("Found Deployment: {}", deployment_name);
-        //check replica count and create new state object
-        let deployment_state: State;
-        let replica_count = deployment.spec.unwrap().replicas.unwrap();
-        if replica_count == 0 {
-          deployment_state = State::new(deployment_name.clone());
-        }else{
-          deployment_state = State::Active(StateValue{
-            activity_timestamp: get_epoch_seconds(),
-            outgoing_total_count: 0,
-            deployment: deployment_name.clone(),
-          });
-        }
-        let mut has_queues = false;
+        //get scale target trigger
         let d_name = deployment_name.clone();
+        let mut trigger_map = StateTriggerMap::new();
         let labels = deployment.metadata.labels;
         for (key,val) in labels {
           if key.starts_with("tibcoems.apimeister.com/queue") {
@@ -195,32 +206,31 @@ pub async fn run(){
             if all_queues.contains_key(&val) {
               //known queue
               info!("add queue scaler queue: {}, deployment: {}",val,d_name);
-              scale_targets.insert(val,d_name.clone());
-              has_queues = true;
+              scale_targets.insert(val.clone(),d_name.clone());
+              trigger_map.insert(val.clone(),0);
             }else{
               //queue does not exist
               warn!("queue cannot be monitored, because it does not exists: {}",val);
             }
           }
         }
-        if has_queues {
+        //check replica count and create new state object
+        let deployment_state: State;
+        let replica_count = deployment.spec.unwrap().replicas.unwrap();
+        if replica_count == 0 {
+          deployment_state = State::new(deployment_name.clone(),trigger_map.clone());
+        }else{
+          deployment_state = State::Active(StateValue{
+            activity_timestamp: get_epoch_seconds(),
+            trigger: trigger_map.clone(),
+            deployment: deployment_name.clone(),
+          });
+        }
+
+        if trigger_map.len() > 0 {
           known_scalings.insert(deployment_name,deployment_state);
         }
       }
-    //   let patch = serde_json::json!({
-    //     "apiVersion": "v1",
-    //     "kind": "Pod",
-    //     "metadata": {
-    //         "name": "blog"
-    //     },
-    //     "spec": {
-    //         "activeDeadlineSeconds": 5
-    //     }
-    // });
-    // //$sys.monitor.q.r.test.q
-    // let params = PatchParams::apply("myapp");
-    // let patch = Patch::Apply(&patch);
-    //   deployments.patch_scale("name",pp,patch);
     }
   }
 }

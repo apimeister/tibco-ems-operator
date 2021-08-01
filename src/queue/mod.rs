@@ -13,6 +13,7 @@ use env_var::env_var;
 use tibco_ems::Session;
 use tibco_ems::admin::QueueInfo;
 use super::scaler::State;
+use super::scaler::StateTrigger;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
 #[kube(group = "tibcoems.apimeister.com", version = "v1", 
@@ -271,13 +272,14 @@ async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i6
       let deployment_state: Option<State> = get_state(&deployment);
       match deployment_state {
         Some(state) => {
+          let trigger: StateTrigger = (queue_name.to_string(), outgoing_total_count);
           if pending_messages > 0 {
             //scale up
-            let s2 = state.scale_up(outgoing_total_count).await;
+            let s2 = state.scale_up(trigger).await;
             insert_state(deployment, s2);
           }else{
             //scale down
-            let s2 = state.scale_down(outgoing_total_count).await;
+            let s2 = state.scale_down(trigger).await;
             insert_state(deployment, s2)
           }
         },
