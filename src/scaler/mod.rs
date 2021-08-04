@@ -104,7 +104,7 @@ impl State {
         let old_out_total = trigger_map_reader.get(&trigger_name).or(Some(&default_value)).unwrap();
         trigger_map.insert(trigger_name,trigger_value);
         if old_out_total < &trigger_value {
-          debug!("{}: stile processing message while scale_down() was called",trigger.0);
+          debug!("{}: still processing message while scale_down() was called",trigger.0);
           trigger_map.insert(trigger.0.clone(),trigger.1);
           return State::Active(StateValue{
             activity_timestamp: ts,
