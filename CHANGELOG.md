@@ -1,3 +1,7 @@
+# tibco-ems-operator:42/0.9.0/2021-08-04
+
+* support multiple scaling targets for a single queue
+
 # tibco-ems-operator:41/0.8.0/2021-08-01
 
 * prevent scale down while engine is still consuming messages

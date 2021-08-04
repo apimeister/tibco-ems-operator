@@ -10,6 +10,7 @@ use std::time::SystemTime;
 const COOLDOWN_PERIOD_SECONDS: u64 = 60;
 
 pub type StateTrigger = (String, i64);
+/// TriggerMap contains of string (queue name) and i64 (outbound_message_count)
 type StateTriggerMap = HashMap<String, i64>;
 
 #[derive(Clone,Debug,PartialEq)]
@@ -99,7 +100,8 @@ impl State {
         let trigger_value = trigger.1.clone();
         let mut trigger_map = val.trigger.clone();
         let trigger_map_reader = val.trigger.clone();
-        let old_out_total = trigger_map_reader.get(&trigger_name).unwrap();
+        let default_value: i64 = 0;
+        let old_out_total = trigger_map_reader.get(&trigger_name).or(Some(&default_value)).unwrap();
         trigger_map.insert(trigger_name,trigger_value);
         if old_out_total < &trigger_value {
           debug!("{}: stile processing message while scale_down() was called",trigger.0);
@@ -144,8 +146,10 @@ impl State {
   }
 }
 
+/// HashMap of Deployment Name with the value of Deployment State
 pub static KNOWN_STATES: Lazy<Mutex<HashMap<String,State>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
-pub static SCALE_TARGETS: Lazy<Mutex<HashMap<String,String>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
+/// HashMap of Queue Name with the value as Vector of deployment names
+pub static SCALE_TARGETS: Lazy<Mutex<HashMap<String,Vec<String>>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 
 pub fn get_epoch_seconds() -> u64 {
   SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
@@ -199,19 +203,30 @@ pub async fn run(){
         let d_name = deployment_name.clone();
         let mut trigger_map = StateTriggerMap::new();
         let labels = deployment.metadata.labels;
-        for (key,val) in labels {
+        for (key,queue_name) in labels {
           if key.starts_with("tibcoems.apimeister.com/queue") {
             //check known queues
             let all_queues = super::queue::QUEUES.lock().unwrap();
-            if all_queues.contains_key(&val) {
+            if all_queues.contains_key(&queue_name) {
               //known queue
-              info!("add queue scaler queue: {}, deployment: {}",val,d_name);
-              scale_targets.insert(val.clone(),d_name.clone());
-              trigger_map.insert(val.clone(),0);
+              if scale_targets.contains_key(&queue_name) {
+                let mut x: Vec<String> =scale_targets.get(&queue_name).unwrap().clone();
+                //check if the vector contains the value d_name
+                if !x.contains(&d_name) {
+                  x.push(d_name.clone());
+                }
+                info!("add queue scaler queue: {}, deployment: {:?}",queue_name,x);
+                scale_targets.insert(queue_name.clone(),x);
+              }else{
+                info!("add queue scaler queue: {}, deployment: {}",queue_name,d_name);
+                scale_targets.insert(queue_name.clone(),vec![d_name.clone()]);
+              }
             }else{
               //queue does not exist
-              warn!("queue cannot be monitored, because it does not exists: {}",val);
+              warn!("queue cannot be monitored, because it does not exists: {}",queue_name);
             }
+            //add to trigger map
+            trigger_map.insert(d_name.clone(),0);
           }
         }
         //check replica count and create new state object

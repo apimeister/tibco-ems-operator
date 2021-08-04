@@ -247,11 +247,12 @@ pub async fn watch_queues_status() -> Result<()>{
   }
 }
 
-fn get_target(queue_name: &str) -> Option<String> {
+fn get_target(queue_name: &str) -> Vec<String> {
   let targets = super::scaler::SCALE_TARGETS.lock().unwrap();
-  match targets.get(queue_name) {
-    Some(val) => Some(val.to_string()),
-    None => None,
+  if targets.contains_key(queue_name) {
+    return targets.get(queue_name).unwrap().clone();
+  }else{
+    return Vec::new();
   }
 }
 fn get_state(deployment_name: &str) -> Option<State> {
@@ -266,9 +267,9 @@ fn insert_state(deployment_name: String, state: State){
   states.insert(deployment_name, state);
 }
 async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i64) {
-  let deployment_name: Option<String> = get_target(queue_name);
-  match deployment_name {
-    Some(deployment) => {
+  let deployment_name: Vec<String> = get_target(queue_name).clone();
+  if deployment_name.len()>0 {
+    for deployment in &deployment_name {
       let deployment_state: Option<State> = get_state(&deployment);
       match deployment_state {
         Some(state) => {
@@ -276,17 +277,16 @@ async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i6
           if pending_messages > 0 {
             //scale up
             let s2 = state.scale_up(trigger).await;
-            insert_state(deployment, s2);
+            insert_state(deployment.clone(), s2);
           }else{
             //scale down
             let s2 = state.scale_down(trigger).await;
-            insert_state(deployment, s2)
+            insert_state(deployment.clone(), s2)
           }
         },
         None => {},
       }
-    },
-    None => {},
+    }
   }
 }
 
