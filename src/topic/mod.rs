@@ -53,87 +53,66 @@ pub async fn watch_topics() -> Result<()>{
   let lp = ListParams::default();
 
   let mut last_version: String = "0".to_owned();
-  info!("subscribing events of type topics.tibcoems.apimeister.com/v1");
+  info!("subscribing to events of type topics.tibcoems.apimeister.com/v1");
   loop{
     debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
-    match watch_result {
-      Ok(str_result) => {
-        let mut stream = str_result.boxed();
-        loop {
-          let stream_result = stream.try_next().await;
-          match stream_result {
-            Ok(status_obj) => {
-              match status_obj {
-                Some(status) => {
-                  debug!("new stream item");
-                  match status {
-                    WatchEvent::Added(mut topic) =>{
-                      let topic_name = get_topic_name(&topic);
-                      let name = ResourceExt::name(&topic);
-                      {
-                        let mut res = KNOWN_TOPICS.lock().unwrap();
-                        match res.get(&topic_name) {
-                          Some(_queue) => debug!("topic already known {}", &topic_name),
-                          None => {
-                            info!("adding topic {}", &topic_name);
-                            create_topic(&mut topic);
-                            let q = (&topic).clone();
-                            let n = (&topic_name).clone();
-                            res.insert(n, q);
-                          },
-                        }
-                      }
-                      match topic.status {
-                        None =>{
-                          let q_json = serde_json::to_string(&topic).unwrap();
-                          let pp = PostParams::default();
-                          let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-                        },
-                        _ => {},
-                      };
-                      last_version = ResourceExt::resource_version(&topic).unwrap();
-                    },
-                    WatchEvent::Deleted(topic) =>{
-                      let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-                      let tname = get_topic_name(&topic);
-                      if do_not_delete == "TRUE" {
-                        warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",tname);
-                      }else{
-                        delete_topic(&topic);
-                      }
-                      last_version = ResourceExt::resource_version(&topic).unwrap();
-                    },
-                    WatchEvent::Error(e) => {
-                      if e.code == 410 && e.reason=="Expired" {
-                        //fail silently
-                        trace!("resource_version too old, resetting offset to 0");
-                        last_version="0".to_owned();
-                      }else{
-                        error!("Error {:?}", e);
-                        error!("resetting offset to 0");
-                        last_version="0".to_owned();
-                      }
-                    },
-                    _ => {},
-                  };
-                },
-                None => {
-                  debug!("request loop returned empty");  
-                  break;
-                }
-              }
-            },
-            Err(err) => {
-              debug!("error on request loop {:?}",err);  
-              break;
+    let str_result = match watch_result { Ok(x) => x, Err(_) => continue };
+    let mut stream = str_result.boxed();
+    loop {
+      let stream_result = stream.try_next().await;
+      let status_obj = match stream_result { Ok(x) => x, Err(e) => { debug!("error on request loop {:?}", e); break } };
+      let status = match status_obj { Some(x) => x, None => { debug!("request loop returned empty"); break } };
+      debug!("new stream item");
+
+      match status {
+        WatchEvent::Added(mut topic) =>{
+          {
+            let mut res = KNOWN_TOPICS.lock().unwrap();
+            let topic_name = get_topic_name(&topic);
+            match res.get(&topic_name) {
+              Some(_topic) => debug!("topic already known {}", &topic_name),
+              None => {
+                info!("adding topic {}", &topic_name);
+                create_topic(&mut topic);
+                res.insert(topic_name, topic.clone());
+              },
             }
           }
-        }
-      },
-      Err(_err) => {
-        //ignore connection reset
-      }
+          match topic.status {
+            None =>{
+              let name = ResourceExt::name(&topic);
+              let q_json = serde_json::to_string(&topic).unwrap();
+              let pp = PostParams::default();
+              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+            },
+            _ => {},
+          };
+          last_version = ResourceExt::resource_version(&topic).unwrap();
+        },
+        WatchEvent::Deleted(topic) =>{
+          let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+          let tname = get_topic_name(&topic);
+          if do_not_delete == "TRUE" {
+            warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", tname);
+          }else{
+            delete_topic(&topic);
+          }
+          last_version = ResourceExt::resource_version(&topic).unwrap();
+        },
+        WatchEvent::Error(e) => {
+          if e.code == 410 && e.reason=="Expired" {
+            //fail silently
+            trace!("resource_version too old, resetting offset to 0");
+            last_version="0".to_owned();
+          }else{
+            error!("Error {:?}", e);
+            error!("resetting offset to 0");
+            last_version="0".to_owned();
+          }
+        },
+        _ => {},
+      };
     }
   }
 }
@@ -248,7 +227,7 @@ fn get_obj_name_from_topic(topic: &Topic) -> String {
   return topic.metadata.name.clone().unwrap();
 }
 
-fn create_topic(topic: &mut  Topic){
+fn create_topic(topic: &mut Topic){
   let tname = get_topic_name(topic);
 
   let mut topic_info = TopicInfo{
@@ -258,6 +237,7 @@ fn create_topic(topic: &mut  Topic){
     global: topic.spec.global,
     ..Default::default()
   };
+
   match topic.spec.expiration {
     Some(val) => {
       topic_info.expiry_override = Some(val as i64);
