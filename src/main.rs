@@ -1,8 +1,7 @@
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Result, Server, StatusCode};
 use hyper::header::CONTENT_TYPE;
-use tibco_ems::admin::QueueInfo;
-use tibco_ems::admin::TopicInfo;
+use tibco_ems::admin::{QueueInfo, TopicInfo};
 use tibco_ems::Session;
 use std::panic;
 use std::process;
@@ -59,12 +58,12 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
     Ok(response)
   } else {
     if uri.starts_with("/queue/"){
-      let queue_name = uri.strip_prefix("/queue/").unwrap();
+      let prefix_rm_uri = uri.strip_prefix("/queue/").unwrap();
       let mut json_string;
-      if queue_name.contains("%7C") {
-        //escaped pipe character
+      let queue_name: String = prefix_rm_uri.replace("%7C", "|");
+      if queue_name.contains("|") {
         //multiple queues
-        let queue_list = queue_name.split("%7C");
+        let queue_list: Vec<&str> = queue_name.split("|").collect();
         let all_queues = &mut QueueInfo{
           name: "mixed".to_string(),
           pending_messages: Some(0),
@@ -78,39 +77,12 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
           let mut consumer_count = 0;
           for key in c_map.keys() {
             let qinfo = c_map.get(key).unwrap();
-            queue_list.clone().by_ref().for_each(|e| {
-              if &qinfo.name == e {
+            for q in &queue_list {
+              if q == &qinfo.name {
                 pending_messages += qinfo.pending_messages.unwrap();
                 consumer_count += qinfo.consumer_count.unwrap();
               }
-            });
-          }
-          all_queues.pending_messages = Some(pending_messages);
-          all_queues.consumer_count = Some(consumer_count);
-        }
-        json_string = serde_json::to_string(all_queues).unwrap();
-      } else if queue_name.contains("|") {
-        //multiple queues
-        let queue_list = queue_name.split("|");
-        let all_queues = &mut QueueInfo{
-          name: "mixed".to_string(),
-          pending_messages: Some(0),
-          consumer_count: Some(0),
-          ..Default::default()
-        };
-        //get queues 
-        {
-          let c_map = queue::QUEUES.lock().unwrap();
-          let mut pending_messages = 0;
-          let mut consumer_count = 0;
-          for key in c_map.keys() {
-            let qinfo = c_map.get(key).unwrap();
-            queue_list.clone().by_ref().for_each(|e| {
-              if &qinfo.name == e {
-                pending_messages += qinfo.pending_messages.unwrap();
-                consumer_count += qinfo.consumer_count.unwrap();
-              }
-            });
+            }
           }
           all_queues.pending_messages = Some(pending_messages);
           all_queues.consumer_count = Some(consumer_count);
@@ -143,11 +115,12 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
       Ok(response)
     } else {
       if uri.starts_with("/topic/") {
-        let topic_name = uri.strip_prefix("/topic/").unwrap();
+        let prefix_rm_uri = uri.strip_prefix("/topic/").unwrap();
         let mut json_string;
+        let topic_name: String = prefix_rm_uri.replace("%7C", "|");
         if topic_name.contains("|") {
           //multiple topics
-          let topic_list = topic_name.split("|");
+          let topic_list: Vec<&str> = topic_name.split("|").collect();
           let all_topics = &mut TopicInfo{
             name: "mixed".to_string(),
             pending_messages: Some(0),
@@ -163,13 +136,13 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
             let mut durable_count = 0;
             for key in c_map.keys() {
               let tinfo = c_map.get(key).unwrap();
-              topic_list.clone().by_ref().for_each(|e| {
-                if &tinfo.name == e {
+              for t in &topic_list {
+                if t == &tinfo.name {
                   pending_messages += tinfo.pending_messages.unwrap();
                   subscriber_count += tinfo.subscriber_count.unwrap();
                   durable_count += tinfo.durable_count.unwrap();
                 }
-              });
+              }
             }
             all_topics.pending_messages = Some(pending_messages);
             all_topics.subscriber_count = Some(subscriber_count);
