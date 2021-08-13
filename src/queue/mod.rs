@@ -55,90 +55,67 @@ pub async fn watch_queues() -> Result<()>{
   let updater: Api<Queue> = crds.clone(); 
   let lp = ListParams::default();
 
-  let mut last_version: String = "0".to_string();
-  info!("subscribing events of type queues.tibcoems.apimeister.com/v1");
+  let mut last_version = String::from("0");
+  info!("subscribing to events of type queues.tibcoems.apimeister.com/v1");
   loop{
     debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
-    match watch_result {
-      Ok(str_result) => {
-        let mut stream = str_result.boxed();
-        loop {
-          let stream_result = stream.try_next().await;
-          match stream_result {
-            Ok(status_obj) => {
-              match status_obj {
-                Some(status) => {
-                  debug!("new stream item");
-                  match status {
-                    WatchEvent::Added(mut queue) =>{
-                      let qname = get_queue_name(&queue);
-                      let name = ResourceExt::name(&queue);
-                      {
-                        let mut res = KNOWN_QUEUES.lock().unwrap();
-                        match res.get(&qname) {
-                          Some(_queue) => debug!("queue already known {}", &qname),
-                          None => {
-                            info!("adding queue {}", &qname);
-                            create_queue(&mut queue);
-                            let q = (&queue).clone();
-                            let n = (&qname).to_string();
-                            res.insert(n, q);
-                          },
-                        }
-                      }
-                      match queue.status {
-                        None =>{
-                          let q_json = serde_json::to_string(&queue).unwrap();
-                          let pp = PostParams::default();
-                          let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-                        },
-                        _ => {},
-                      };
-                      last_version = ResourceExt::resource_version(&queue).unwrap();
-                    },
-                    WatchEvent::Deleted(queue) =>{
-                      let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-                      let qname = get_queue_name(&queue);
-                      if do_not_delete == "TRUE" {
-                        warn!("delete queue {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",qname);
-                      }else{
-                        delete_queue(&queue);
-                      }
-                      let mut res = KNOWN_QUEUES.lock().unwrap();
-                      res.remove(&qname);
-                      last_version = ResourceExt::resource_version(&queue).unwrap();
-                    },
-                    WatchEvent::Error(e) => {
-                      if e.code == 410 && e.reason=="Expired" {
-                        //fail silently
-                        trace!("resource_version too old, resetting offset to 0");
-                        last_version="0".to_owned();
-                      }else{
-                        error!("Error {:?}", e);
-                        error!("resetting offset to 0");
-                        last_version="0".to_owned();
-                      }
-                    },
-                    _ => {},
-                  };
-                },
-                None => {
-                  debug!("request loop returned empty");  
-                  break;
-                }
-              }
-            },
-            Err(err) => {
-              debug!("error on request loop {:?}",err);  
-              break;
+    let str_result = match watch_result { Ok(x) => x, Err(_) => continue };
+    let mut stream = str_result.boxed();
+    loop {
+      let stream_result = stream.try_next().await;
+      let status_obj = match stream_result { Ok(x) => x, Err(e) => { debug!("error on request loop {:?}", e); break } };
+      let status = match status_obj { Some(x) => x, None => { debug!("request loop returned empty"); break } };
+      debug!("new stream item");
+
+      match status {
+        WatchEvent::Added(mut queue) =>{
+          {
+            let mut res = KNOWN_QUEUES.lock().unwrap();
+            let queue_name = get_queue_name(&queue);
+            match res.get(&queue_name) {
+              Some(_queue) => debug!("queue already known {}", &queue_name),
+              None => {
+                info!("adding queue {}", &queue_name);
+                create_queue(&mut queue);
+                res.insert(queue_name, queue.clone());
+              },
             }
           }
-        }
-      },
-      Err(_err) => {
-        //ignore connection reset
-      }
+          match queue.status {
+            None =>{
+              let name = ResourceExt::name(&queue);
+              let q_json = serde_json::to_string(&queue).unwrap();
+              let pp = PostParams::default();
+              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+            },
+            _ => {},
+          };
+          last_version = ResourceExt::resource_version(&queue).unwrap();
+        },
+        WatchEvent::Deleted(queue) =>{
+          let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+          let qname = get_queue_name(&queue);
+          if do_not_delete == "TRUE" {
+            warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", qname);
+          }else{
+            delete_queue(&queue);
+          }
+          last_version = ResourceExt::resource_version(&queue).unwrap();
+        },
+        WatchEvent::Error(e) => {
+          if e.code == 410 && e.reason=="Expired" {
+            //fail silently
+            trace!("resource_version too old, resetting offset to 0");
+            last_version="0".to_owned();
+          }else{
+            error!("Error {:?}", e);
+            error!("resetting offset to 0");
+            last_version="0".to_owned();
+          }
+        },
+        _ => {},
+      };
     }
   }
 }
