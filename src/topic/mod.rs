@@ -127,73 +127,55 @@ pub async fn watch_topics_status() -> Result<()>{
       let session = TOPIC_ADMIN_CONNECTION.lock().unwrap();
       result = tibco_ems::admin::list_all_topics(&session);
     }
-    match result {
-      Ok(res) => {
-        for tinfo in &res {
-          //update prometheus
-          {
-            let mut c_map = TOPICS.lock().unwrap();
-            c_map.insert(tinfo.name.clone(),tinfo.clone());
-          }
-          //update k8s state
-          if read_only == "FALSE" {
-            let mut t : Option<Topic> = None;
-            {
-              let mut res = KNOWN_TOPICS.lock().unwrap();
-              match res.get(&tinfo.name) {
-                Some(topic) =>{
-                  let mut local_t = topic.clone();
-                  match &topic.status {
-                    Some(status) => {
-                      if status.pendingMessages != tinfo.pending_messages.unwrap()
-                        || status.subscribers != tinfo.subscriber_count.unwrap()
-                        || status.durables != tinfo.durable_count.unwrap() {
-                        local_t.status = Some(TopicStatus{
-                            pendingMessages: tinfo.pending_messages.unwrap(),
-                            subscribers: tinfo.subscriber_count.unwrap(),
-                            durables: tinfo.durable_count.unwrap() });
-                        t = Some(local_t.clone());  
-                        res.insert(tinfo.name.to_owned(),local_t);
-                      }
-                    },
-                    None => {
-                      local_t.status = Some(TopicStatus{
-                        pendingMessages: tinfo.pending_messages.unwrap(),
-                        subscribers: tinfo.subscriber_count.unwrap(),
-                        durables: tinfo.durable_count.unwrap()});
-                      t = Some(local_t.clone());  
-                      res.insert(tinfo.name.to_owned(),local_t);
-                    },
-                  }
-                },
-                None => {},
-              }
-            }
-            match t {
-              Some(mut local_topic) => {
-                let obj_name = get_obj_name_from_topic(&local_topic);
-                debug!("updating topic status for {}",obj_name);
-                let updater: Api<Topic> = get_topic_client().await;
-                let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
-                local_topic.metadata.resource_version=ResourceExt::resource_version(&latest_topic);
-                let q_json = serde_json::to_string(&local_topic).unwrap();
-                let pp = PostParams::default();
-                let result = updater.replace_status(&obj_name, &pp, q_json.as_bytes().to_vec()).await;
-                match result {
-                  Ok(_ignore) => {},
-                  Err(err) => {
-                    error!("error while updating topic object");
-                    error!("{:?}",err);
-                  },
-                }
-              },
-              None => {},
-            }
+    let res: Vec<tibco_ems::admin::TopicInfo> = match result { 
+      Ok(x) => x, Err(_err) => { panic!("failed to retrieve topic information"); } };
+
+    for tinfo in &res {
+      //update prometheus
+      {
+        let mut c_map = TOPICS.lock().unwrap();
+        c_map.insert(tinfo.name.clone(),tinfo.clone());
+      }
+      //update k8s state
+      if read_only == "FALSE" {
+        let mut t: Option<Topic> = None;
+        {
+          let mut res = KNOWN_TOPICS.lock().unwrap();
+          let topic = match res.get(&tinfo.name) { Some(x) => x, None => continue };
+          let update = match &topic.status {
+            Some(status) if status.pendingMessages != tinfo.pending_messages.unwrap() => true,
+            Some(status) if status.subscribers != tinfo.subscriber_count.unwrap() => true,
+            Some(status) if status.durables != tinfo.durable_count.unwrap() => true,
+            None => true,
+            _ => false };
+            
+          if update {
+            let mut updated_topic = topic.clone();
+            updated_topic.status = Some(TopicStatus{
+              pendingMessages: tinfo.pending_messages.unwrap(),
+              subscribers: tinfo.subscriber_count.unwrap(),
+              durables: tinfo.durable_count.unwrap()});
+            t = Some(updated_topic.clone());  
+            res.insert(tinfo.name.to_owned(),updated_topic);
           }
         }
-      },
-      Err(_err) => {
-        panic!("failed to retrieve topic information");
+        let mut local_topic = match t { Some(x) => x, None => continue };
+
+        let obj_name = get_obj_name_from_topic(&local_topic);
+        debug!("updating topic status for {}", obj_name);
+        let updater: Api<Topic> = get_topic_client().await;
+        let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
+        local_topic.metadata.resource_version=ResourceExt::resource_version(&latest_topic);
+        let t_json = serde_json::to_string(&local_topic).unwrap();
+        let pp = PostParams::default();
+        let result = updater.replace_status(&obj_name, &pp, t_json.as_bytes().to_vec()).await;
+        match result {
+          Ok(_ignore) => {},
+          Err(err) => {
+            error!("error while updating topic object");
+            error!("{:?}",err);
+          },
+        }
       }
     }
     interval.tick().await;
@@ -206,6 +188,7 @@ async fn get_topic_client() -> Api<Topic>{
   let crds: Api<Topic> = Api::namespaced(client, &namespace);
   return crds;
 }
+
 fn get_topic_name(topic: &Topic) -> String {
   let mut tname: String = String::from("");
   //check for name in spec
@@ -223,6 +206,7 @@ fn get_topic_name(topic: &Topic) -> String {
   }
   return tname;
 }
+
 fn get_obj_name_from_topic(topic: &Topic) -> String {
   return topic.metadata.name.clone().unwrap();
 }
