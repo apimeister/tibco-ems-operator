@@ -57,162 +57,158 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
         .body(Body::from(body))
         .unwrap();
     Ok(response)
-  } else {
-    if uri.starts_with("/queue/"){
-      let queue_name = uri.strip_prefix("/queue/").unwrap();
-      let mut json_string;
-      if queue_name.contains("%7C") {
-        //escaped pipe character
-        //multiple queues
-        let queue_list = queue_name.split("%7C");
-        let all_queues = &mut QueueInfo{
-          name: "mixed".to_string(),
-          pending_messages: Some(0),
-          consumer_count: Some(0),
-          ..Default::default()
-        };
-        //get queues 
-        {
-          let c_map = queue::QUEUES.lock().unwrap();
-          let mut pending_messages = 0;
-          let mut consumer_count = 0;
-          for key in c_map.keys() {
-            let qinfo = c_map.get(key).unwrap();
-            queue_list.clone().by_ref().for_each(|e| {
-              if &qinfo.name == e {
-                pending_messages += qinfo.pending_messages.unwrap();
-                consumer_count += qinfo.consumer_count.unwrap();
-              }
-            });
-          }
-          all_queues.pending_messages = Some(pending_messages);
-          all_queues.consumer_count = Some(consumer_count);
-        }
-        json_string = serde_json::to_string(all_queues).unwrap();
-      } else if queue_name.contains("|") {
-        //multiple queues
-        let queue_list = queue_name.split("|");
-        let all_queues = &mut QueueInfo{
-          name: "mixed".to_string(),
-          pending_messages: Some(0),
-          consumer_count: Some(0),
-          ..Default::default()
-        };
-        //get queues 
-        {
-          let c_map = queue::QUEUES.lock().unwrap();
-          let mut pending_messages = 0;
-          let mut consumer_count = 0;
-          for key in c_map.keys() {
-            let qinfo = c_map.get(key).unwrap();
-            queue_list.clone().by_ref().for_each(|e| {
-              if &qinfo.name == e {
-                pending_messages += qinfo.pending_messages.unwrap();
-                consumer_count += qinfo.consumer_count.unwrap();
-              }
-            });
-          }
-          all_queues.pending_messages = Some(pending_messages);
-          all_queues.consumer_count = Some(consumer_count);
-        }
-        json_string = serde_json::to_string(all_queues).unwrap();
-      } else {
-        //get single queue
-        let queue_info = &mut QueueInfo{
-          name: queue_name.to_string(),
-          pending_messages: Some(0),
-          consumer_count: Some(0),
-          ..Default::default()
-        };
-        json_string = serde_json::to_string(queue_info).unwrap();
-        {
-          let c_map = queue::QUEUES.lock().unwrap();
-          for key in c_map.keys() {
-            let qinfo = c_map.get(key).unwrap();
-            if qinfo.name == queue_name {
-              json_string = serde_json::to_string(qinfo).unwrap();
+  } else if uri.starts_with("/queue/"){
+    let queue_name = uri.strip_prefix("/queue/").unwrap();
+    let mut json_string;
+    if queue_name.contains("%7C") {
+      //escaped pipe character
+      //multiple queues
+      let queue_list = queue_name.split("%7C");
+      let all_queues = &mut QueueInfo{
+        name: "mixed".to_string(),
+        pending_messages: Some(0),
+        consumer_count: Some(0),
+        ..Default::default()
+      };
+      //get queues 
+      {
+        let c_map = queue::QUEUES.lock().unwrap();
+        let mut pending_messages = 0;
+        let mut consumer_count = 0;
+        for key in c_map.keys() {
+          let qinfo = c_map.get(key).unwrap();
+          queue_list.clone().by_ref().for_each(|e| {
+            if qinfo.name == e {
+              pending_messages += qinfo.pending_messages.unwrap();
+              consumer_count += qinfo.consumer_count.unwrap();
             }
-          }
+          });
         }
+        all_queues.pending_messages = Some(pending_messages);
+        all_queues.consumer_count = Some(consumer_count);
       }
-      let response = Response::builder()
-      .status(StatusCode::OK)
-      .header(CONTENT_TYPE, "application/json; charset=utf-8")
-      .body(Body::from(json_string))
-      .unwrap();
-      Ok(response)
+      json_string = serde_json::to_string(all_queues).unwrap();
+    } else if queue_name.contains('|') {
+      //multiple queues
+      let queue_list = queue_name.split('|');
+      let all_queues = &mut QueueInfo{
+        name: "mixed".to_string(),
+        pending_messages: Some(0),
+        consumer_count: Some(0),
+        ..Default::default()
+      };
+      //get queues 
+      {
+        let c_map = queue::QUEUES.lock().unwrap();
+        let mut pending_messages = 0;
+        let mut consumer_count = 0;
+        for key in c_map.keys() {
+          let qinfo = c_map.get(key).unwrap();
+          queue_list.clone().by_ref().for_each(|e| {
+            if qinfo.name == e {
+              pending_messages += qinfo.pending_messages.unwrap();
+              consumer_count += qinfo.consumer_count.unwrap();
+            }
+          });
+        }
+        all_queues.pending_messages = Some(pending_messages);
+        all_queues.consumer_count = Some(consumer_count);
+      }
+      json_string = serde_json::to_string(all_queues).unwrap();
     } else {
-      if uri.starts_with("/topic/") {
-        let topic_name = uri.strip_prefix("/topic/").unwrap();
-        let mut json_string;
-        if topic_name.contains("|") {
-          //multiple topics
-          let topic_list = topic_name.split("|");
-          let all_topics = &mut TopicInfo{
-            name: "mixed".to_string(),
-            pending_messages: Some(0),
-            subscriber_count: Some(0),
-            durable_count: Some(0),
-            ..Default::default()
-          };
-          //get topics 
-          {
-            let c_map = topic::TOPICS.lock().unwrap();
-            let mut pending_messages = 0;
-            let mut subscriber_count = 0;
-            let mut durable_count = 0;
-            for key in c_map.keys() {
-              let tinfo = c_map.get(key).unwrap();
-              topic_list.clone().by_ref().for_each(|e| {
-                if &tinfo.name == e {
-                  pending_messages += tinfo.pending_messages.unwrap();
-                  subscriber_count += tinfo.subscriber_count.unwrap();
-                  durable_count += tinfo.durable_count.unwrap();
-                }
-              });
-            }
-            all_topics.pending_messages = Some(pending_messages);
-            all_topics.subscriber_count = Some(subscriber_count);
-            all_topics.durable_count = Some(durable_count);
-          }
-          json_string = serde_json::to_string(all_topics).unwrap();
-        } else {
-          //get single topic 
-          let topic_info = &mut TopicInfo{
-            name: topic_name.to_string(),
-            pending_messages: Some(0),
-            subscriber_count: Some(0),
-            durable_count: Some(0),
-            ..Default::default()
-          };
-          json_string = serde_json::to_string(topic_info).unwrap();
-          {
-            let c_map = topic::TOPICS.lock().unwrap();
-            for key in c_map.keys() {
-              let tinfo = c_map.get(key).unwrap();
-              if tinfo.name == topic_name {
-                json_string = serde_json::to_string(tinfo).unwrap();
-              }
-            }
+      //get single queue
+      let queue_info = &mut QueueInfo{
+        name: queue_name.to_string(),
+        pending_messages: Some(0),
+        consumer_count: Some(0),
+        ..Default::default()
+      };
+      json_string = serde_json::to_string(queue_info).unwrap();
+      {
+        let c_map = queue::QUEUES.lock().unwrap();
+        for key in c_map.keys() {
+          let qinfo = c_map.get(key).unwrap();
+          if qinfo.name == queue_name {
+            json_string = serde_json::to_string(qinfo).unwrap();
           }
         }
-        let response = Response::builder()
-        .status(StatusCode::OK)
-        .header(CONTENT_TYPE, "application/json; charset=utf-8")
-        .body(Body::from(json_string))
-        .unwrap();
-        Ok(response)
-      } else {
-        //unknown uri
-        error!("unkown endpoint: {}",uri);
-        let response = Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .header(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
-            .body(Body::from(""))
-            .unwrap();
-        Ok(response)
       }
     }
+    let response = Response::builder()
+    .status(StatusCode::OK)
+    .header(CONTENT_TYPE, "application/json; charset=utf-8")
+    .body(Body::from(json_string))
+    .unwrap();
+    Ok(response)
+  } else if uri.starts_with("/topic/") {
+    let topic_name = uri.strip_prefix("/topic/").unwrap();
+    let mut json_string;
+    if topic_name.contains('|') {
+      //multiple topics
+      let topic_list = topic_name.split('|');
+      let all_topics = &mut TopicInfo{
+        name: "mixed".to_string(),
+        pending_messages: Some(0),
+        subscriber_count: Some(0),
+        durable_count: Some(0),
+        ..Default::default()
+      };
+      //get topics 
+      {
+        let c_map = topic::TOPICS.lock().unwrap();
+        let mut pending_messages = 0;
+        let mut subscriber_count = 0;
+        let mut durable_count = 0;
+        for key in c_map.keys() {
+          let tinfo = c_map.get(key).unwrap();
+          topic_list.clone().by_ref().for_each(|e| {
+            if tinfo.name == e {
+              pending_messages += tinfo.pending_messages.unwrap();
+              subscriber_count += tinfo.subscriber_count.unwrap();
+              durable_count += tinfo.durable_count.unwrap();
+            }
+          });
+        }
+        all_topics.pending_messages = Some(pending_messages);
+        all_topics.subscriber_count = Some(subscriber_count);
+        all_topics.durable_count = Some(durable_count);
+      }
+      json_string = serde_json::to_string(all_topics).unwrap();
+    } else {
+      //get single topic 
+      let topic_info = &mut TopicInfo{
+        name: topic_name.to_string(),
+        pending_messages: Some(0),
+        subscriber_count: Some(0),
+        durable_count: Some(0),
+        ..Default::default()
+      };
+      json_string = serde_json::to_string(topic_info).unwrap();
+      {
+        let c_map = topic::TOPICS.lock().unwrap();
+        for key in c_map.keys() {
+          let tinfo = c_map.get(key).unwrap();
+          if tinfo.name == topic_name {
+            json_string = serde_json::to_string(tinfo).unwrap();
+          }
+        }
+      }
+    }
+    let response = Response::builder()
+    .status(StatusCode::OK)
+    .header(CONTENT_TYPE, "application/json; charset=utf-8")
+    .body(Body::from(json_string))
+    .unwrap();
+    Ok(response)
+  } else {
+    //unknown uri
+    error!("unkown endpoint: {}",uri);
+    let response = Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .header(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
+        .body(Body::from(""))
+        .unwrap();
+    Ok(response)
   }
 }
 

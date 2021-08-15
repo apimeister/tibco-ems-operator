@@ -87,12 +87,10 @@ pub async fn watch_bridges() -> Result<()>{
                       if e.code == 410 && e.reason=="Expired" {
                         //fail silently
                         trace!("resource_version too old, resetting offset to 0");
-                        last_version="0".to_owned();
                       }else{
-                        error!("Error {:?}", e);
-                        error!("resetting offset to 0");
-                        last_version="0".to_owned();
+                        error!("Error {:?}, resetting offset to 0", e);
                       }
+                      last_version="0".to_owned();
                     },
                     _ => {}
                   };
@@ -120,8 +118,7 @@ pub async fn watch_bridges() -> Result<()>{
 async fn get_bridge_client() -> Api<Bridge>{
   let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
-  let crds: Api<Bridge> = Api::namespaced(client, &namespace);
-  return crds;
+  Api::namespaced(client, &namespace)
 }
 
 fn create_bridge(bridge: &Bridge){
@@ -149,11 +146,8 @@ fn create_bridge(bridge: &Bridge){
   if target_type.starts_with("TOPIC") {
     bridge_info.target = Destination::Topic(bridge.spec.target_name.clone());
   }
-  match bridge.spec.selector.clone() {
-    Some(sel) => {
-      bridge_info.selector = Some(sel);
-    },
-    None => {},
+  if let Some(sel) = bridge.spec.selector.clone() {
+    bridge_info.selector = Some(sel);
   }
   let result = tibco_ems::admin::create_bridge(&session, &bridge_info);
   match result {

@@ -1,3 +1,7 @@
+# tibco-ems-operator:43/0.10.0/2021-08-*
+
+* implement clippy recommendations
+
 # tibco-ems-operator:42/0.9.0/2021-08-04
 
 * support multiple scaling targets for a single queue
