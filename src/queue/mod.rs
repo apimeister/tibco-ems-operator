@@ -222,30 +222,24 @@ fn insert_state(deployment_name: String, state: State){
 }
 
 async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i64) {
-  let deployment_name: Vec<String> = get_target(queue_name).clone();
-  if deployment_name.len()>0 {
-    for deployment in &deployment_name {
-      let deployment_state: Option<State> = get_state(&deployment);
-      match deployment_state {
-        Some(state) => {
-          let trigger: StateTrigger = (queue_name.to_string(), outgoing_total_count);
-          if pending_messages > 0 {
-            //scale up
-            let s2 = state.scale_up(trigger).await;
-            insert_state(deployment.clone(), s2);
-          }else{
-            //scale down
-            let s2 = state.scale_down(trigger).await;
-            insert_state(deployment.clone(), s2)
-          }
-        },
-        None => {},
-      }
+  let deployment_name: Vec<String> = get_target(queue_name);
+
+  for deployment in &deployment_name {
+    let state = match get_state(&deployment) { Some(state) => state, None => continue };
+    let trigger: StateTrigger = (queue_name.to_string(), outgoing_total_count);
+    if pending_messages > 0 {
+      //scale up
+      let s2 = state.scale_up(trigger).await;
+      insert_state(deployment.clone(), s2);
+    } else {
+      //scale down
+      let s2 = state.scale_down(trigger).await;
+      insert_state(deployment.clone(), s2)
     }
   }
 }
 
-async fn get_queue_client() -> Api<Queue>{
+async fn get_queue_client() -> Api<Queue> {
   let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let crds: Api<Queue> = Api::namespaced(client, &namespace);
