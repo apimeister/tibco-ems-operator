@@ -1,15 +1,13 @@
 use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
-use kube::{api::{Api, ListParams, ResourceExt}, Client};
-use kube::api::WatchEvent;
+use kube::{api::{Api, ListParams, ResourceExt, WatchEvent}, Client};
 use kube_derive::CustomResource;
 use hyper::Result;
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
-use tibco_ems::Session;
 use tibco_ems::admin::BridgeInfo;
-use tibco_ems::Destination;
+use tibco_ems::{Session, Destination};
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
@@ -33,86 +31,65 @@ pub async fn watch_bridges() -> Result<()>{
   let crds: Api<Bridge> = get_bridge_client().await;
   let lp = ListParams::default();
 
-  let mut last_version: String = "0".to_owned();
-  info!("subscribing events of type bridges.tibcoems.apimeister.com/v1");
+  let mut last_version = String::from("0");
+  info!("subscribing to events of type bridges.tibcoems.apimeister.com/v1");
   loop{
     debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
-    match watch_result {
-      Ok(str_result) => {
-        let mut stream = str_result.boxed();
-        loop {
-          debug!("new stream item");
-          let stream_result = stream.try_next().await;
-          match stream_result {
-            Ok(status_obj) => {
-              match status_obj {
-                Some(status) => {
-                  match status {
-                    WatchEvent::Added(bridge) => {
-                      let bname = ResourceExt::name(&bridge);
-                      {
-                        let mut res = KNOWN_BRIDGES.lock().unwrap();
-                        match res.get(&bname) {
-                          Some(_bridge) => debug!("bridge already known {}", &bname),
-                          None => {
-                            info!("Added {}", bname);
-                            create_bridge(&bridge);
-                            let b = bridge.clone();
-                            let n = bname.clone();
-                            res.insert(n, b);
-                          },
-                        }
-                      }
-                      last_version = ResourceExt::resource_version(&bridge).unwrap();
-                    },
-                    WatchEvent::Modified(bridge) => {
-                      info!("Modified {}", ResourceExt::name(&bridge));
-                      create_bridge(&bridge);
-                      last_version = ResourceExt::resource_version(&bridge).unwrap();          
-                    }
-                    WatchEvent::Deleted(bridge) => {
-                      let bname = ResourceExt::name(&bridge);
-                      let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-                      if do_not_delete == "TRUE" {
-                        warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",bname);
-                      }else{
-                        delete_bridge(&bridge);
-                      }
-                      let mut res = KNOWN_BRIDGES.lock().unwrap();
-                      res.remove(&bname);
-                      last_version = ResourceExt::resource_version(&bridge).unwrap();                   
-                    },
-                    WatchEvent::Error(e) => {
-                      if e.code == 410 && e.reason=="Expired" {
-                        //fail silently
-                        trace!("resource_version too old, resetting offset to 0");
-                        last_version="0".to_owned();
-                      }else{
-                        error!("Error {:?}", e);
-                        error!("resetting offset to 0");
-                        last_version="0".to_owned();
-                      }
-                    },
-                    _ => {}
-                  };
-                },
-                None => {
-                  debug!("request loop returned empty");  
-                  break;
-                }
-              }
-            },
-            Err(err) => {
-              debug!("error on request loop {:?}",err);  
-              break;
+    let str_result = match watch_result { Ok(x) => x, Err(_) => continue };
+    let mut stream = str_result.boxed();
+    loop {
+      let stream_result = stream.try_next().await;
+      let status_obj = match stream_result { Ok(x) => x, Err(e) => { debug!("error on request loop {:?}", e); break } };
+      let status = match status_obj { Some(x) => x, None => { debug!("request loop returned empty"); break } };
+      debug!("new stream item");
+
+      match status {
+        WatchEvent::Added(bridge) =>{
+          {
+            let mut res = KNOWN_BRIDGES.lock().unwrap();
+            let bname = ResourceExt::name(&bridge);
+            match res.get(&bname) {
+              Some(_bridge) => debug!("bridge already known {}", &bname),
+              None => {
+                info!("adding bridge {}", &bname);
+                create_bridge(&bridge);
+                res.insert(bname, bridge.clone());
+              },
             }
           }
-        }
-      },
-      Err(_err) => {
-        //ignore connection reset
-      }
+          last_version = ResourceExt::resource_version(&bridge).unwrap();
+        },
+        WatchEvent::Modified(bridge) => {
+          info!("Modified {}", ResourceExt::name(&bridge));
+          create_bridge(&bridge);
+          last_version = ResourceExt::resource_version(&bridge).unwrap();          
+        },
+        WatchEvent::Deleted(bridge) => {
+          let bname = ResourceExt::name(&bridge);
+          let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+          if do_not_delete == "TRUE" {
+            warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", bname);
+          }else{
+            delete_bridge(&bridge);
+          }
+          let mut res = KNOWN_BRIDGES.lock().unwrap();
+          res.remove(&bname);
+          last_version = ResourceExt::resource_version(&bridge).unwrap();
+        },
+        WatchEvent::Error(e) => {
+          if e.code == 410 && e.reason=="Expired" {
+            //fail silently
+            trace!("resource_version too old, resetting offset to 0");
+            last_version="0".to_owned();
+          }else{
+            error!("Error {:?}", e);
+            error!("resetting offset to 0");
+            last_version="0".to_owned();
+          }
+        },
+        _ => {},
+      };
     }
   }
 }
