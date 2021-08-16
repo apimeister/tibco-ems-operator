@@ -101,6 +101,8 @@ pub async fn watch_queues() -> Result<()>{
           }else{
             delete_queue(&queue);
           }
+          let mut res = KNOWN_QUEUES.lock().unwrap();
+          res.remove(&qname);
           last_version = ResourceExt::resource_version(&queue).unwrap();
         },
         WatchEvent::Error(e) => {

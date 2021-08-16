@@ -98,6 +98,8 @@ pub async fn watch_topics() -> Result<()>{
           }else{
             delete_topic(&topic);
           }
+          let mut res = KNOWN_TOPICS.lock().unwrap();
+          res.remove(&tname);
           last_version = ResourceExt::resource_version(&topic).unwrap();
         },
         WatchEvent::Error(e) => {
