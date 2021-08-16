@@ -102,41 +102,34 @@ async fn get_bridge_client() -> Api<Bridge>{
 }
 
 fn create_bridge(bridge: &Bridge){
-  let bname = bridge.metadata.name.clone().unwrap();
-  info!("creating bridge {}",bname);
-  let session = ADMIN_CONNECTION.lock().unwrap();
+  // generate default bridge
   let mut bridge_info = BridgeInfo{
     source: Destination::Topic(bridge.spec.source_name.clone()),
     target: Destination::Queue(bridge.spec.target_name.clone()),
     selector: None,
   };
+  // if source is not a topic
   let mut source_type = bridge.spec.source_type.clone();
   source_type.make_ascii_uppercase();
-  if source_type.starts_with("QUEUE") {
-    bridge_info.source = Destination::Queue(bridge.spec.source_name.clone())
-  }
-  if source_type.starts_with("TOPIC") {
-    bridge_info.source = Destination::Topic(bridge.spec.source_name.clone());
-  }
+  if source_type.starts_with("QUEUE") { bridge_info.source = Destination::Queue(bridge.spec.source_name.clone()); }
+  // if target is not a queue
   let mut target_type = bridge.spec.target_type.clone();
   target_type.make_ascii_uppercase();
-  if target_type.starts_with("QUEUE") {
-    bridge_info.target = Destination::Queue(bridge.spec.target_name.clone());
-  }
-  if target_type.starts_with("TOPIC") {
-    bridge_info.target = Destination::Topic(bridge.spec.target_name.clone());
-  }
-  match bridge.spec.selector.clone() {
-    Some(sel) => {
-      bridge_info.selector = Some(sel);
-    },
+  if target_type.starts_with("QUEUE") { bridge_info.target = Destination::Queue(bridge.spec.target_name.clone()); }
+  // add selector if given
+  match &bridge.spec.selector {
+    Some(sel) => bridge_info.selector = Some(sel.clone()),
     None => {},
   }
+
+  // show what we send in debug mode
+  debug!("{:?}", bridge_info);
+
+  // create bridge on server
+  let session = ADMIN_CONNECTION.lock().unwrap();
   let result = tibco_ems::admin::create_bridge(&session, &bridge_info);
   match result {
-    Ok(_) => {
-      debug!("bridge created successful");
-    },
+    Ok(_) => debug!("bridge created successful"),
     Err(err) => {
       error!("failed to create bridge: {:?}",err);
       panic!("failed to create bridge");
