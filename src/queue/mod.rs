@@ -82,15 +82,12 @@ pub async fn watch_queues() -> Result<()>{
               },
             }
           }
-          match queue.status {
-            None =>{
-              let name = ResourceExt::name(&queue);
-              let q_json = serde_json::to_string(&queue).unwrap();
-              let pp = PostParams::default();
-              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-            },
-            _ => {},
-          };
+          if queue.status.is_none() {
+            let name = ResourceExt::name(&queue);
+            let q_json = serde_json::to_string(&queue).unwrap();
+            let pp = PostParams::default();
+            let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+          }
           last_version = ResourceExt::resource_version(&queue).unwrap();
         },
         WatchEvent::Deleted(queue) =>{
@@ -106,15 +103,14 @@ pub async fn watch_queues() -> Result<()>{
           last_version = ResourceExt::resource_version(&queue).unwrap();
         },
         WatchEvent::Error(e) => {
-          if e.code == 410 && e.reason=="Expired" {
+          if e.code == 410 && e.reason == "Expired" {
             //fail silently
             trace!("resource_version too old, resetting offset to 0");
-            last_version="0".to_owned();
-          }else{
+          }else {
             error!("Error {:?}", e);
             error!("resetting offset to 0");
-            last_version="0".to_owned();
           }
+          last_version="0".to_owned();
         },
         _ => {},
       };
@@ -136,14 +132,8 @@ pub async fn watch_queues_status() -> Result<()>{
       Ok(x) => x, Err(_err) => { panic!("failed to retrieve queue information"); } };
 
     for qinfo in &res {
-      let pending_messages: i64 = match qinfo.pending_messages {
-        Some(val) => val,
-        None => 0,
-      };
-      let outgoing_total_count: i64 = match qinfo.outgoing_total_count {
-        Some(val) => val,
-        None => 0,
-      };
+      let pending_messages: i64 = qinfo.pending_messages.unwrap_or(0);
+      let outgoing_total_count: i64 = qinfo.outgoing_total_count.unwrap_or(0);
       //update prometheus
       {
         let mut c_map = QUEUES.lock().unwrap();
@@ -162,7 +152,7 @@ pub async fn watch_queues_status() -> Result<()>{
         {
           let mut res = KNOWN_QUEUES.lock().unwrap();
           let queue = match res.get(&qinfo.name) { Some(x) => x, None => continue };
-          let consumer_count = match qinfo.consumer_count { Some(x) => x, None => 0 };                        
+          let consumer_count = qinfo.consumer_count.unwrap_or(0);                      
           let update = match &queue.status {
             Some(status) if status.pendingMessages != pending_messages => true,
             Some(status) if status.consumerCount != consumer_count => true,
@@ -204,18 +194,15 @@ pub async fn watch_queues_status() -> Result<()>{
 fn get_target(queue_name: &str) -> Vec<String> {
   let targets = super::scaler::SCALE_TARGETS.lock().unwrap();
   if targets.contains_key(queue_name) {
-    return targets.get(queue_name).unwrap().clone();
-  }else{
-    return Vec::new();
+    targets.get(queue_name).unwrap().clone()
+  } else {
+    Vec::new()
   }
 }
 
 fn get_state(deployment_name: &str) -> Option<State> {
   let states = super::scaler::KNOWN_STATES.lock().unwrap();
-  match states.get(deployment_name) {
-    Some(val) => Some(val.clone()),
-    None => None,
-  }
+  states.get(deployment_name).cloned()
 }
 
 fn insert_state(deployment_name: String, state: State){
@@ -227,7 +214,7 @@ async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i6
   let deployment_name: Vec<String> = get_target(queue_name);
 
   for deployment in &deployment_name {
-    let state = match get_state(&deployment) { Some(state) => state, None => continue };
+    let state = match get_state(deployment) { Some(state) => state, None => continue };
     let trigger: StateTrigger = (queue_name.to_string(), outgoing_total_count);
     if pending_messages > 0 {
       //scale up
@@ -244,8 +231,7 @@ async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i6
 async fn get_queue_client() -> Api<Queue> {
   let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
-  let crds: Api<Queue> = Api::namespaced(client, &namespace);
-  return crds;
+  Api::namespaced(client, &namespace)
 }
 
 fn get_queue_name(queue: &Queue) -> String {
@@ -254,20 +240,17 @@ fn get_queue_name(queue: &Queue) -> String {
   match &queue.spec.name {
     Some(q) => qname=q.to_owned(),
     None =>{
-      match &queue.metadata.name {
-        Some(n) =>{
-          qname = n.to_owned();
-          qname.make_ascii_uppercase();
-        },
-        _ => {},
+      if let Some(n) = &queue.metadata.name {
+        qname = n.to_owned();
+        qname.make_ascii_uppercase();
       }
-    },
+    }
   }
-  return qname;
+  qname
 }
 
 fn get_obj_name_from_queue(queue: &Queue) -> String {
-  return queue.metadata.name.clone().unwrap();
+  queue.metadata.name.clone().unwrap()
 }
 
 fn create_queue(queue: &mut Queue){
@@ -280,12 +263,8 @@ fn create_queue(queue: &mut Queue){
     global: queue.spec.global,
     ..Default::default()
   };
-  match queue.spec.expiration {
-    Some(val) => {
-      queue_info.expiry_override = Some(val as i64);
-    },
-    None => {},
-  }
+  if let Some(val) = queue.spec.expiration { 
+    queue_info.expiry_override = Some(val as i64); }
   let session = ADMIN_CONNECTION.lock().unwrap();
   let result = tibco_ems::admin::create_queue(&session, &queue_info);
   match result {
@@ -299,21 +278,15 @@ fn create_queue(queue: &mut Queue){
   }
 
   //propagate defaults
-  match queue.spec.maxmsgs {
-    None => queue.spec.maxmsgs=Some(0),
-    _ => {},
-  }
-  match queue.spec.expiration {
-    None => queue.spec.expiration=Some(0),
-    _ => {},
-  }
+  if queue.spec.maxmsgs.is_none() { queue.spec.maxmsgs=Some(0) }
+  if queue.spec.expiration.is_none() { queue.spec.expiration=Some(0) }
   queue.spec.overflowPolicy=Some(0);
   queue.spec.prefetch=Some(0);
   queue.spec.global=Some(false);
   queue.spec.maxbytes=Some(0);
   queue.spec.redeliveryDelay=Some(0);
   queue.spec.maxRedelivery=Some(0);
-  let status = QueueStatus{pendingMessages: 0,consumerCount: 0};
+  let status = QueueStatus{pendingMessages: 0, consumerCount: 0};
   queue.status =  Some(status);
 }
 

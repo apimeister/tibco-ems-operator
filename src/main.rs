@@ -26,9 +26,9 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
       let prefix_rm_uri = uri.strip_prefix("/queue/").unwrap();
       let mut json_string;
       let queue_name: String = prefix_rm_uri.replace("%7C", "|");
-      if queue_name.contains("|") {
+      if queue_name.contains('|') {
         //multiple queues
-        let queue_list: Vec<&str> = queue_name.split("|").collect();
+        let queue_list: Vec<&str> = queue_name.split('|').collect();
         let all_queues = &mut QueueInfo{
           name: "mixed".to_string(),
           pending_messages: Some(0),
@@ -119,9 +119,9 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
       let prefix_rm_uri = uri.strip_prefix("/topic/").unwrap();
       let mut json_string;
       let topic_name: String = prefix_rm_uri.replace("%7C", "|");
-      if topic_name.contains("|") {
+      if topic_name.contains('|') {
         //multiple topics
-        let topic_list: Vec<&str> = topic_name.split("|").collect();
+        let topic_list: Vec<&str> = topic_name.split('|').collect();
         let all_topics = &mut TopicInfo{
           name: "mixed".to_string(),
           pending_messages: Some(0),

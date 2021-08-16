@@ -79,14 +79,11 @@ pub async fn watch_topics() -> Result<()>{
               },
             }
           }
-          match topic.status {
-            None =>{
-              let name = ResourceExt::name(&topic);
-              let q_json = serde_json::to_string(&topic).unwrap();
-              let pp = PostParams::default();
-              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-            },
-            _ => {},
+          if topic.status.is_none() {
+            let name = ResourceExt::name(&topic);
+            let q_json = serde_json::to_string(&topic).unwrap();
+            let pp = PostParams::default();
+            let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
           };
           last_version = ResourceExt::resource_version(&topic).unwrap();
         },
@@ -106,12 +103,11 @@ pub async fn watch_topics() -> Result<()>{
           if e.code == 410 && e.reason=="Expired" {
             //fail silently
             trace!("resource_version too old, resetting offset to 0");
-            last_version="0".to_owned();
           }else{
             error!("Error {:?}", e);
             error!("resetting offset to 0");
-            last_version="0".to_owned();
           }
+          last_version="0".to_owned();
         },
         _ => {},
       };
@@ -187,8 +183,7 @@ pub async fn watch_topics_status() -> Result<()>{
 async fn get_topic_client() -> Api<Topic>{
   let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
-  let crds: Api<Topic> = Api::namespaced(client, &namespace);
-  return crds;
+  Api::namespaced(client, &namespace)
 }
 
 fn get_topic_name(topic: &Topic) -> String {
@@ -197,20 +192,17 @@ fn get_topic_name(topic: &Topic) -> String {
   match &topic.spec.name {
     Some(q) => tname=q.to_owned(),
     None =>{
-      match &topic.metadata.name {
-        Some(n) =>{
-          tname = n.to_owned();
-          tname.make_ascii_uppercase();
-        },
-        _ => {},
+      if let Some(n) = &topic.metadata.name {
+        tname = n.to_owned();
+        tname.make_ascii_uppercase();
       }
-    },
+    }
   }
-  return tname;
+  tname
 }
 
 fn get_obj_name_from_topic(topic: &Topic) -> String {
-  return topic.metadata.name.clone().unwrap();
+  topic.metadata.name.clone().unwrap()
 }
 
 fn create_topic(topic: &mut Topic){
@@ -224,12 +216,7 @@ fn create_topic(topic: &mut Topic){
     ..Default::default()
   };
 
-  match topic.spec.expiration {
-    Some(val) => {
-      topic_info.expiry_override = Some(val as i64);
-    },
-    None => {},
-  }
+  if let Some(val) = topic.spec.expiration { topic_info.expiry_override = Some(val as i64); };
   let session = ADMIN_CONNECTION.lock().unwrap();
   let result = tibco_ems::admin::create_topic(&session, &topic_info);
   match result {
@@ -243,14 +230,8 @@ fn create_topic(topic: &mut Topic){
   }
 
   //propagate defaults
-  match topic.spec.maxmsgs {
-    None => topic.spec.maxmsgs=Some(0),
-    _ => {},
-  }
-  match topic.spec.expiration {
-    None => topic.spec.expiration=Some(0),
-    _ => {},
-  }
+  if topic.spec.maxmsgs.is_none() { topic.spec.maxmsgs=Some(0) };
+  if topic.spec.expiration.is_none() { topic.spec.expiration=Some(0) };
   topic.spec.overflowPolicy=Some(0);
   topic.spec.prefetch=Some(0);
   topic.spec.global=Some(false);

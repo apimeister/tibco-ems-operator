@@ -26,11 +26,11 @@ pub enum State{
 }
 impl State {
   pub fn new(deployment: String,trigger: StateTriggerMap) -> State {
-    State::Inactive(StateValue{ 
-      activity_timestamp: get_epoch_seconds(),
-      trigger: trigger,
-      deployment: deployment,
-    })
+    State::Inactive(
+      StateValue{ 
+        activity_timestamp: get_epoch_seconds(), trigger, deployment
+      }
+    )
   }
 }
 
@@ -52,25 +52,22 @@ impl State {
         let mut trigger_map = val.trigger.clone();
         trigger_map.insert(trigger.0, trigger.1);
         match scale_after {
-          Ok(_val) => {
-            return State::Active(
+          Ok(_) => {
+            State::Active(
               StateValue{
                 activity_timestamp: ts,
                 trigger: trigger_map,
                 deployment: val.deployment,
-              }
-            );
-    
+              })    
           },
           Err(err) => {
             error!("scale up failed: {:?}",err);
-            return State::Inactive(
+            State::Inactive(
               StateValue{
                 activity_timestamp: ts,
                 trigger: trigger_map,
                 deployment: val.deployment,
-              }
-            );
+              })
           },
         }
       },
@@ -78,26 +75,23 @@ impl State {
         let mut trigger_map = val.trigger.clone();
         let ts = get_epoch_seconds();
         trigger_map.insert(trigger.0,trigger.1);
-        return State::Active(
+        State::Active(
           StateValue{
             activity_timestamp: ts,
             trigger: trigger_map,
             deployment: val.deployment,
-          }
-        );
+          })
       },
     }
   }
   pub async fn scale_down(self, trigger: StateTrigger) -> State {
     match self{
-      State::Inactive(val) => {
-        return State::Inactive(val);
-      },
+      State::Inactive(val) => State::Inactive(val),
       State::Active(val) => {
         let deployment_name = val.deployment.clone();
         let ts = get_epoch_seconds();
         let trigger_name = trigger.0.clone();
-        let trigger_value = trigger.1.clone();
+        let trigger_value = trigger.1;
         let mut trigger_map = val.trigger.clone();
         let trigger_map_reader = val.trigger.clone();
         let default_value: i64 = 0;
@@ -127,18 +121,15 @@ impl State {
         let patch_params = PatchParams::default();
         let scale_after = deployments.patch_scale(&deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await;
         match scale_after {
-          Ok(_state) => {
-            return State::Inactive(
+          Ok(_) => State::Inactive(
               StateValue{
                 activity_timestamp: ts,
                 trigger: trigger_map.clone(),
                 deployment: val.deployment,
-              }
-            );
-          },
+              }),
           Err(err) => {
             error!("scale down failed: {}",err);
-            return State::Active(val);
+            State::Active(val)
           }
         }
       },
@@ -241,9 +232,8 @@ pub async fn run(){
             deployment: deployment_name.clone(),
           });
         }
-
-        if trigger_map.len() > 0 {
-          known_scalings.insert(deployment_name,deployment_state);
+        if !trigger_map.is_empty() {
+          known_scalings.insert(deployment_name, deployment_state);
         }
       }
     }
