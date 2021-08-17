@@ -26,11 +26,11 @@ pub enum State{
 }
 impl State {
   pub fn new(deployment: String,trigger: StateTriggerMap) -> State {
-    State::Inactive(StateValue{ 
-      activity_timestamp: get_epoch_seconds(),
-      trigger,
-      deployment,
-    })
+    State::Inactive(
+      StateValue{ 
+        activity_timestamp: get_epoch_seconds(), trigger, deployment
+      }
+    )
   }
 }
 
@@ -52,14 +52,13 @@ impl State {
         let mut trigger_map = val.trigger.clone();
         trigger_map.insert(trigger.0, trigger.1);
         match scale_after {
-          Ok(_val) => {
+          Ok(_) => {
             State::Active(
               StateValue{
                 activity_timestamp: ts,
                 trigger: trigger_map,
                 deployment: val.deployment,
-              }
-            )
+              })    
           },
           Err(err) => {
             error!("scale up failed: {:?}",err);
@@ -68,8 +67,7 @@ impl State {
                 activity_timestamp: ts,
                 trigger: trigger_map,
                 deployment: val.deployment,
-              }
-            )
+              })
           },
         }
       },
@@ -82,16 +80,13 @@ impl State {
             activity_timestamp: ts,
             trigger: trigger_map,
             deployment: val.deployment,
-          }
-        )
+          })
       },
     }
   }
   pub async fn scale_down(self, trigger: StateTrigger) -> State {
     match self{
-      State::Inactive(val) => {
-        State::Inactive(val)
-      },
+      State::Inactive(val) => State::Inactive(val),
       State::Active(val) => {
         let deployment_name = val.deployment.clone();
         let ts = get_epoch_seconds();
@@ -126,15 +121,12 @@ impl State {
         let patch_params = PatchParams::default();
         let scale_after = deployments.patch_scale(&deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await;
         match scale_after {
-          Ok(_state) => {
-            State::Inactive(
+          Ok(_) => State::Inactive(
               StateValue{
                 activity_timestamp: ts,
                 trigger: trigger_map.clone(),
                 deployment: val.deployment,
-              }
-            )
-          },
+              }),
           Err(err) => {
             error!("scale down failed: {}",err);
             State::Active(val)
@@ -201,34 +193,31 @@ pub async fn run(){
         //get scale target trigger
         let d_name = deployment_name.clone();
         let mut trigger_map = StateTriggerMap::new();
-        let opt_labels = deployment.metadata.labels;
-        if opt_labels.is_some() {
-          let labels = opt_labels.unwrap();
-          for (key,queue_name) in labels {
-            if key.starts_with("tibcoems.apimeister.com/queue") {
-              //check known queues
-              let all_queues = super::queue::QUEUES.lock().unwrap();
-              if all_queues.contains_key(&queue_name) {
-                //known queue
-                if scale_targets.contains_key(&queue_name) {
-                  let mut x: Vec<String> =scale_targets.get(&queue_name).unwrap().clone();
-                  //check if the vector contains the value d_name
-                  if !x.contains(&d_name) {
-                    x.push(d_name.clone());
-                  }
-                  info!("add queue scaler queue: {}, deployment: {:?}",queue_name,x);
-                  scale_targets.insert(queue_name.clone(),x);
-                }else{
-                  info!("add queue scaler queue: {}, deployment: {}",queue_name,d_name);
-                  scale_targets.insert(queue_name.clone(),vec![d_name.clone()]);
+        let labels = deployment.metadata.labels;
+        for (key,queue_name) in labels {
+          if key.starts_with("tibcoems.apimeister.com/queue") {
+            //check known queues
+            let all_queues = super::queue::QUEUES.lock().unwrap();
+            if all_queues.contains_key(&queue_name) {
+              //known queue
+              if scale_targets.contains_key(&queue_name) {
+                let mut x: Vec<String> =scale_targets.get(&queue_name).unwrap().clone();
+                //check if the vector contains the value d_name
+                if !x.contains(&d_name) {
+                  x.push(d_name.clone());
                 }
+                info!("add queue scaler queue: {}, deployment: {:?}",queue_name,x);
+                scale_targets.insert(queue_name.clone(),x);
               }else{
-                //queue does not exist
-                warn!("queue cannot be monitored, because it does not exists: {}",queue_name);
+                info!("add queue scaler queue: {}, deployment: {}",queue_name,d_name);
+                scale_targets.insert(queue_name.clone(),vec![d_name.clone()]);
               }
-              //add to trigger map
-              trigger_map.insert(d_name.clone(),0);
+            }else{
+              //queue does not exist
+              warn!("queue cannot be monitored, because it does not exists: {}",queue_name);
             }
+            //add to trigger map
+            trigger_map.insert(d_name.clone(),0);
           }
         }
         //check replica count and create new state object
@@ -243,9 +232,8 @@ pub async fn run(){
             deployment: deployment_name.clone(),
           });
         }
-
         if !trigger_map.is_empty() {
-          known_scalings.insert(deployment_name,deployment_state);
+          known_scalings.insert(deployment_name, deployment_state);
         }
       }
     }
