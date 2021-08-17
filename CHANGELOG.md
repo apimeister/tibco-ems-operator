@@ -1,4 +1,4 @@
-# tibco-ems-operator:43/0.10.0/2021-08-*
+# tibco-ems-operator:43/2021-08-17
 
 * implement clippy recommendations
 
