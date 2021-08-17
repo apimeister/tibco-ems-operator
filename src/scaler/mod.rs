@@ -193,7 +193,7 @@ pub async fn run(){
         //get scale target trigger
         let d_name = deployment_name.clone();
         let mut trigger_map = StateTriggerMap::new();
-        let labels = deployment.metadata.labels;
+        let labels = deployment.metadata.labels.unwrap();
         for (key,queue_name) in labels {
           if key.starts_with("tibcoems.apimeister.com/queue") {
             //check known queues
