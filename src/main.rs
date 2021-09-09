@@ -5,6 +5,7 @@ use tibco_ems::admin::{QueueInfo, TopicInfo};
 use tibco_ems::Session;
 use std::panic;
 use std::process;
+use urlencoding::decode;
 
 mod queue;
 mod topic;
@@ -25,7 +26,7 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
     x if x.starts_with("/queue/") => {
       let prefix_rm_uri = uri.strip_prefix("/queue/").unwrap();
       let mut json_string;
-      let queue_name: String = prefix_rm_uri.replace("%7C", "|");
+      let queue_name: String = decode(prefix_rm_uri).unwrap().into_owned();
       if queue_name.contains('|') {
         //multiple queues
         let queue_list: Vec<&str> = queue_name.split('|').collect();
@@ -118,7 +119,7 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
     x if x.starts_with("/topic/") => {
       let prefix_rm_uri = uri.strip_prefix("/topic/").unwrap();
       let mut json_string;
-      let topic_name: String = prefix_rm_uri.replace("%7C", "|");
+      let topic_name: String = decode(prefix_rm_uri).unwrap().into_owned();
       if topic_name.contains('|') {
         //multiple topics
         let topic_list: Vec<&str> = topic_name.split('|').collect();
