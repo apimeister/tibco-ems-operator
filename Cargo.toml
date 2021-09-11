@@ -1,6 +1,6 @@
 [package]
 name = "tibco-ems-operator"
-version = "43.0.0"
+version = "44.0.0"
 authors = ["Jens Walter <jens@apimeister.com>"]
 edition = "2018"
 
@@ -21,3 +21,4 @@ env_logger = "0.9"
 tibco_ems = "0.3"
 # tibco_ems = { path = "../tibco-ems-rs", version = "0.3.7"}
 env-var = "1"
+urlencoding = "2.1.0"

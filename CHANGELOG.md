@@ -1,3 +1,7 @@
+# tibco-ems-operator:44/2021-09-10
+
+* support unescaping of all escaped URI chars
+
 # tibco-ems-operator:43/2021-08-17
 
 * implement clippy recommendations
