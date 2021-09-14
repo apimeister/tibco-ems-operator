@@ -264,7 +264,11 @@ fn create_queue(queue: &mut Queue){
     ..Default::default()
   };
   if let Some(val) = queue.spec.expiration { 
-    queue_info.expiry_override = Some(val as i64); }
+    queue_info.expiry_override = Some(val as i64);
+  }
+  if let Some(val) = queue.spec.prefetch { 
+    queue_info.prefetch = Some(val as i32);
+  }
   let session = ADMIN_CONNECTION.lock().unwrap();
   let result = tibco_ems::admin::create_queue(&session, &queue_info);
   match result {
@@ -281,7 +285,11 @@ fn create_queue(queue: &mut Queue){
   if queue.spec.maxmsgs.is_none() { queue.spec.maxmsgs=Some(0) }
   if queue.spec.expiration.is_none() { queue.spec.expiration=Some(0) }
   queue.spec.overflowPolicy=Some(0);
-  queue.spec.prefetch=Some(0);
+  if let Some(val) = queue.spec.prefetch { 
+    queue.spec.prefetch = Some(val as u32);
+  }else{
+    queue.spec.prefetch = Some(0);
+  }
   queue.spec.global=Some(false);
   queue.spec.maxbytes=Some(0);
   queue.spec.redeliveryDelay=Some(0);

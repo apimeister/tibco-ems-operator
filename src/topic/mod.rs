@@ -216,7 +216,12 @@ fn create_topic(topic: &mut Topic){
     ..Default::default()
   };
 
-  if let Some(val) = topic.spec.expiration { topic_info.expiry_override = Some(val as i64); };
+  if let Some(val) = topic.spec.expiration {
+    topic_info.expiry_override = Some(val as i64);
+  };
+  if let Some(val) = topic.spec.prefetch { 
+    topic_info.prefetch = Some(val as i32);
+  }
   let session = ADMIN_CONNECTION.lock().unwrap();
   let result = tibco_ems::admin::create_topic(&session, &topic_info);
   match result {
@@ -233,7 +238,11 @@ fn create_topic(topic: &mut Topic){
   if topic.spec.maxmsgs.is_none() { topic.spec.maxmsgs=Some(0) };
   if topic.spec.expiration.is_none() { topic.spec.expiration=Some(0) };
   topic.spec.overflowPolicy=Some(0);
-  topic.spec.prefetch=Some(0);
+  if let Some(val) = topic.spec.prefetch { 
+    topic.spec.prefetch = Some(val as u32);
+  }else{
+    topic.spec.prefetch = Some(0);
+  }
   topic.spec.global=Some(false);
   topic.spec.maxbytes=Some(0);
   let status = TopicStatus{pendingMessages: 0,subscribers: 0,durables: 0};

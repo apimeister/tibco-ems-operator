@@ -1,6 +1,7 @@
-# tibco-ems-operator:44/2021-09-10
+# tibco-ems-operator:44/2021-09-14
 
 * support unescaping of all escaped URI chars
+* support prefetch for queue/topic creation
 
 # tibco-ems-operator:43/2021-08-17
 
