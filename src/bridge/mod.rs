@@ -71,6 +71,7 @@ pub async fn watch_bridges() -> Result<()>{
           if do_not_delete == "TRUE" {
             warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", bname);
           }else{
+            info!("deleting bridge {}", &bname);
             delete_bridge(&bridge);
           }
           let mut res = KNOWN_BRIDGES.lock().unwrap();
@@ -100,34 +101,12 @@ async fn get_bridge_client() -> Api<Bridge>{
 }
 
 fn create_bridge(bridge: &Bridge){
-  // generate default bridge
-  let mut bridge_info = BridgeInfo{
-    source: Destination::Topic(bridge.spec.source_name.clone()),
-    target: Destination::Queue(bridge.spec.target_name.clone()),
-    selector: None,
-  };
-  // if source is not a topic
-  let mut source_type = bridge.spec.source_type.clone();
-  source_type.make_ascii_uppercase();
-  if source_type.starts_with("QUEUE") { bridge_info.source = Destination::Queue(bridge.spec.source_name.clone()); }
-  // if target is not a queue
-  let mut target_type = bridge.spec.target_type.clone();
-  target_type.make_ascii_uppercase();
-  if target_type.starts_with("QUEUE") { bridge_info.target = Destination::Queue(bridge.spec.target_name.clone()); }
-  // add selector if given
-  match &bridge.spec.selector {
-    Some(sel) => bridge_info.selector = Some(sel.clone()),
-    None => {},
-  }
-
-  // show what we send in debug mode
-  debug!("{:?}", bridge_info);
-
+  let bridge_object = create_bridge_object(bridge);
   // create bridge on server
   let session = ADMIN_CONNECTION.lock().unwrap();
-  let result = tibco_ems::admin::create_bridge(&session, &bridge_info);
+  let result = tibco_ems::admin::create_bridge(&session, &bridge_object);
   match result {
-    Ok(_) => debug!("bridge created successful"),
+    Ok(_) => debug!("bridge created successfully"),
     Err(err) => {
       error!("failed to create bridge: {:?}",err);
       panic!("failed to create bridge");
@@ -136,38 +115,40 @@ fn create_bridge(bridge: &Bridge){
 }
 
 fn delete_bridge(bridge: &Bridge){
-  let bname = bridge.metadata.name.clone().unwrap();
-  info!("deleting bridge {}",bname);
+  let bridge_object = create_bridge_object(bridge);
   let session = ADMIN_CONNECTION.lock().unwrap();
-  let mut bridge_info = BridgeInfo{
-    source: Destination::Topic(bridge.spec.source_name.clone()),
-    target: Destination::Queue(bridge.spec.target_name.clone()),
-    selector: None,
-  };
-  let mut source_type = bridge.spec.source_type.clone();
-  source_type.make_ascii_uppercase();
-  if source_type.starts_with("QUEUE") {
-    bridge_info.source = Destination::Queue(bridge.spec.source_name.clone());
-  }
-  if source_type.starts_with("TOPIC") {
-    bridge_info.source = Destination::Topic(bridge.spec.source_name.clone());
-  }
-  let mut target_type = bridge.spec.target_type.clone();
-  target_type.make_ascii_uppercase();
-  if target_type.starts_with("QUEUE") {
-    bridge_info.target = Destination::Queue(bridge.spec.target_name.clone());
-  }
-  if target_type.starts_with("TOPIC") {
-    bridge_info.target = Destination::Topic(bridge.spec.target_name.clone());
-  }
-  let result = tibco_ems::admin::delete_bridge(&session, &bridge_info);
+  let result = tibco_ems::admin::delete_bridge(&session, &bridge_object);
   match result {
-    Ok(_) => {
-      debug!("bridge deleted");
-    },
+    Ok(_) => debug!("bridge deleted"),
     Err(err) => {
       error!("failed to delete bridge: {:?}",err);
       panic!("failed to delete bridge");
     },
   }
+}
+
+fn create_bridge_object(bridge: &Bridge) -> BridgeInfo {
+  // generate default bridge -> T:Q
+  let mut bridge_info = BridgeInfo{
+    source: Destination::Topic(bridge.spec.source_name.clone()),
+    target: Destination::Queue(bridge.spec.target_name.clone()),
+    selector: None,
+  };
+  // if source is not a topic -> Q:Q
+  let mut source_type = bridge.spec.source_type.clone();
+  source_type.make_ascii_uppercase();
+  if source_type.starts_with('Q') { bridge_info.source = Destination::Queue(bridge.spec.source_name.clone()); }
+  // if target is not a queue -> T:T or Q:T depending if above set to Q
+  let mut target_type = bridge.spec.target_type.clone();
+  target_type.make_ascii_uppercase();
+  if target_type.starts_with('T') { bridge_info.target = Destination::Topic(bridge.spec.target_name.clone()); }
+  // add selector if given
+  match &bridge.spec.selector {
+    Some(sel) => bridge_info.selector = Some(sel.clone()),
+    None => {},
+  }
+
+  // show what we have created in debug mode
+  debug!("{:?}", bridge_info);
+  return bridge_info;
 }
