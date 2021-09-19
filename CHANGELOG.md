@@ -1,3 +1,7 @@
+# tibco-ems-operator:45/2021-09-19
+
+* fix creation of bridges, now all briges (Q-Q,T-T,T-Q,Q-T) are created
+
 # tibco-ems-operator:44/2021-09-14
 
 * support unescaping of all escaped URI chars
