@@ -21,7 +21,7 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
   let uri = req.uri().path();
   trace!("{} {}",req.method(),uri);
 
-// sort by usage, queue scaler, most used
+  // sort by usage, queue scaler, most used
   let response = match uri {
     x if x.starts_with("/queue/") => {
       let prefix_rm_uri = uri.strip_prefix("/queue/").unwrap();
