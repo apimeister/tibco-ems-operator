@@ -150,5 +150,5 @@ fn create_bridge_object(bridge: &Bridge) -> BridgeInfo {
 
   // show what we have created in debug mode
   debug!("{:?}", bridge_info);
-  return bridge_info;
+  bridge_info
 }
