@@ -12,6 +12,10 @@ WORKDIR /app
 COPY Cargo.toml .
 COPY src ./src
 COPY --from=emslibs /opt/tibco/ems/8.6/lib/libtibems.so /lib64/libtibems.so
+# do a clippy check
+RUN rustup component add clippy
+RUN cargo clippy --all -- -D warnings
+# do release build
 RUN cargo install --path .
 
 # Bundle Stage
