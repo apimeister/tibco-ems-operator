@@ -2,7 +2,7 @@ use kube::{api::{Api, ListParams, ResourceExt, PostParams}, Client};
 use kube::api::WatchEvent;
 use futures::{StreamExt, TryStreamExt};
 use serde::{Serialize, Deserialize};
-use kube_derive::CustomResource;
+use kube::CustomResource;
 use tokio::time::{self, Duration};
 use std::collections::HashMap;
 use std::sync::Mutex;

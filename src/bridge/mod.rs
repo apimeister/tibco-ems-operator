@@ -1,7 +1,7 @@
 use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
 use kube::{api::{Api, ListParams, ResourceExt, WatchEvent}, Client};
-use kube_derive::CustomResource;
+use kube::CustomResource;
 use hyper::Result;
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
