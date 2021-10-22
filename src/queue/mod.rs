@@ -129,9 +129,10 @@ pub async fn watch_queues_status() -> Result<()>{
       result = tibco_ems::admin::list_all_queues(&session);
     }
     let res: Vec<tibco_ems::admin::QueueInfo> = match result { 
-      Ok(x) => x, Err(_err) => { panic!("failed to retrieve queue information"); } };
+      Ok(x) => x, Err(_err) => { panic!("failed to retrieve queue information"); } 
+    };
 
-    for qinfo in &res {
+    for qinfo in res {
       let pending_messages: i64 = qinfo.pending_messages.unwrap_or(0);
       let outgoing_total_count: i64 = qinfo.outgoing_total_count.unwrap_or(0);
       //update prometheus
@@ -146,6 +147,7 @@ pub async fn watch_queues_status() -> Result<()>{
           scale(&qinfo.name, pending_messages, outgoing_total_count).await;
         }
       }
+
       //update k8s state
       if read_only == "FALSE" {
         let mut q: Option<Queue> = None;

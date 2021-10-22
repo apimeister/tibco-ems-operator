@@ -37,22 +37,21 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
           ..Default::default()
         };
         //get queues 
-        {
-          let c_map = queue::QUEUES.lock().unwrap();
-          let mut pending_messages = 0;
-          let mut consumer_count = 0;
-          for key in c_map.keys() {
-            let qinfo = c_map.get(key).unwrap();
-            for q in &queue_list {
-              if q == &qinfo.name {
-                pending_messages += qinfo.pending_messages.unwrap();
-                consumer_count += qinfo.consumer_count.unwrap();
-              }
+        let c_map = queue::QUEUES.lock().unwrap();
+        let mut pending_messages = 0;
+        let mut consumer_count = 0;
+        for key in c_map.keys() {
+          let qinfo = c_map.get(key).unwrap();
+          for q in &queue_list {
+            if q == &qinfo.name {
+              pending_messages += qinfo.pending_messages.unwrap();
+              consumer_count += qinfo.consumer_count.unwrap();
             }
           }
-          all_queues.pending_messages = Some(pending_messages);
-          all_queues.consumer_count = Some(consumer_count);
         }
+        all_queues.pending_messages = Some(pending_messages);
+        all_queues.consumer_count = Some(consumer_count);
+        
         json_string = serde_json::to_string(all_queues).unwrap();
       } else {
         //get single queue
@@ -63,13 +62,12 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
           ..Default::default()
         };
         json_string = serde_json::to_string(queue_info).unwrap();
-        {
-          let c_map = queue::QUEUES.lock().unwrap();
-          for key in c_map.keys() {
-            let qinfo = c_map.get(key).unwrap();
-            if qinfo.name == queue_name {
-              json_string = serde_json::to_string(qinfo).unwrap();
-            }
+        
+        let c_map = queue::QUEUES.lock().unwrap();
+        for key in c_map.keys() {
+          let qinfo = c_map.get(key).unwrap();
+          if qinfo.name == queue_name {
+            json_string = serde_json::to_string(qinfo).unwrap();
           }
         }
       }
@@ -87,28 +85,24 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
       body.push_str("# TYPE T:subscribers gauge\n");
       body.push_str("# TYPE T:durables gauge\n");
       //get queues 
-      {
-        let c_map = queue::QUEUES.lock().unwrap();
-        for key in c_map.keys() {
-          let qinfo = c_map.get(key).unwrap();
-          let pending = format!("Q:pendingMessages{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.pending_messages.unwrap());
-          let consumers = format!("Q:consumers{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.consumer_count.unwrap());
-          body.push_str(&pending);
-          body.push_str(&consumers);
-        }
+      let c_map = queue::QUEUES.lock().unwrap();
+      for key in c_map.keys() {
+        let qinfo = c_map.get(key).unwrap();
+        let pending = format!("Q:pendingMessages{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.pending_messages.unwrap());
+        let consumers = format!("Q:consumers{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.consumer_count.unwrap());
+        body.push_str(&pending);
+        body.push_str(&consumers);
       }
       //get topics 
-      {
-        let c_map = topic::TOPICS.lock().unwrap();
-        for key in c_map.keys() {
-          let tinfo = c_map.get(key).unwrap();
-          let pending = format!("T:pendingMessages{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.pending_messages.unwrap());
-          let subscribers = format!("T:subscribers{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.subscriber_count.unwrap());
-          let durables = format!("T:durables{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.durable_count.unwrap());
-          body.push_str(&pending);
-          body.push_str(&subscribers);
-          body.push_str(&durables);
-        }
+      let c_map = topic::TOPICS.lock().unwrap();
+      for key in c_map.keys() {
+        let tinfo = c_map.get(key).unwrap();
+        let pending = format!("T:pendingMessages{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.pending_messages.unwrap());
+        let subscribers = format!("T:subscribers{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.subscriber_count.unwrap());
+        let durables = format!("T:durables{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.durable_count.unwrap());
+        body.push_str(&pending);
+        body.push_str(&subscribers);
+        body.push_str(&durables);
       }
       Response::builder()
           .status(StatusCode::OK)
@@ -131,25 +125,23 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
           ..Default::default()
         };
         //get topics 
-        {
-          let c_map = topic::TOPICS.lock().unwrap();
-          let mut pending_messages = 0;
-          let mut subscriber_count = 0;
-          let mut durable_count = 0;
-          for key in c_map.keys() {
-            let tinfo = c_map.get(key).unwrap();
-            for t in &topic_list {
-              if t == &tinfo.name {
-                pending_messages += tinfo.pending_messages.unwrap();
-                subscriber_count += tinfo.subscriber_count.unwrap();
-                durable_count += tinfo.durable_count.unwrap();
-              }
+        let c_map = topic::TOPICS.lock().unwrap();
+        let mut pending_messages = 0;
+        let mut subscriber_count = 0;
+        let mut durable_count = 0;
+        for key in c_map.keys() {
+          let tinfo = c_map.get(key).unwrap();
+          for t in &topic_list {
+            if t == &tinfo.name {
+              pending_messages += tinfo.pending_messages.unwrap();
+              subscriber_count += tinfo.subscriber_count.unwrap();
+              durable_count += tinfo.durable_count.unwrap();
             }
           }
-          all_topics.pending_messages = Some(pending_messages);
-          all_topics.subscriber_count = Some(subscriber_count);
-          all_topics.durable_count = Some(durable_count);
         }
+        all_topics.pending_messages = Some(pending_messages);
+        all_topics.subscriber_count = Some(subscriber_count);
+        all_topics.durable_count = Some(durable_count);
         json_string = serde_json::to_string(all_topics).unwrap();
       } else {
         //get single topic 
@@ -161,13 +153,11 @@ async fn respond(req: Request<Body>) -> Result<Response<Body>> {
           ..Default::default()
         };
         json_string = serde_json::to_string(topic_info).unwrap();
-        {
-          let c_map = topic::TOPICS.lock().unwrap();
-          for key in c_map.keys() {
-            let tinfo = c_map.get(key).unwrap();
-            if tinfo.name == topic_name {
-              json_string = serde_json::to_string(tinfo).unwrap();
-            }
+        let c_map = topic::TOPICS.lock().unwrap();
+        for key in c_map.keys() {
+          let tinfo = c_map.get(key).unwrap();
+          if tinfo.name == topic_name {
+            json_string = serde_json::to_string(tinfo).unwrap();
           }
         }
       }

@@ -126,9 +126,10 @@ pub async fn watch_topics_status() -> Result<()>{
       result = tibco_ems::admin::list_all_topics(&session);
     }
     let res: Vec<tibco_ems::admin::TopicInfo> = match result { 
-      Ok(x) => x, Err(_err) => { panic!("failed to retrieve topic information"); } };
+      Ok(x) => x, Err(_err) => { panic!("failed to retrieve topic information"); } 
+    };
 
-    for tinfo in &res {
+    for tinfo in res {
       //update prometheus
       {
         let mut c_map = TOPICS.lock().unwrap();
