@@ -1,5 +1,7 @@
 use kube::{api::{Api, ListParams, ResourceExt, Patch}, Client};
 use kube::api::PatchParams;
+use kube::core::subresource::Scale;
+use kube::Error;
 use k8s_openapi::api::apps::v1::Deployment;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -10,6 +12,7 @@ use std::time::SystemTime;
 /// period to wait before a scale down can be performed
 const COOLDOWN_PERIOD_SECONDS: u64 = 60;
 
+/// StateTrigger with 0 being the destination name, 1 being the pending messages
 pub type StateTrigger = (String, i64);
 /// TriggerMap contains of string (queue name) and i64 (outbound_message_count)
 type StateTriggerMap = HashMap<String, i64>;
@@ -36,7 +39,7 @@ pub struct StateValue{
   /// 1 message pending -> 1 replica
   /// 100 message pending -> 2 replicas
   /// 1000 messages pending -> 10 replicas
-  threshold: u32,
+  threshold: i64,
 }
 /// Represents the state of the k8s Deployment
 #[derive(Clone,Debug,PartialEq)]
@@ -53,15 +56,8 @@ impl State {
       State::Inactive(val) => {
         let deployment_name = val.deployment.clone();
         info!("scaling up {}",deployment_name);
-        let client = Client::try_default().await.expect("getting default client");
-        let namespace = env_var!(required "KUBERNETES_NAMESPACE");
-        let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
         let ts = get_epoch_seconds();
-        let scale_spec = serde_json::json!({
-          "spec": { "replicas": 1 }
-        });
-        let patch_params = PatchParams::default();
-        let scale_after = deployments.patch_scale(&deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await;
+        let scale_after = scale_to_target(&deployment_name,1).await;
         let mut trigger_map = val.trigger.clone();
         trigger_map.insert(trigger.0, trigger.1);
         match scale_after {
@@ -92,6 +88,10 @@ impl State {
         let mut trigger_map = val.trigger.clone();
         let ts = get_epoch_seconds();
         trigger_map.insert(trigger.0,trigger.1);
+        // check for scale to many
+        if trigger.1 > val.threshold {
+
+        }
         State::Active(
           StateValue{
             activity_timestamp: ts,
@@ -133,14 +133,7 @@ impl State {
           return State::Active(val);
         }
         info!("scaling down {}",deployment_name);
-        let client = Client::try_default().await.expect("getting default client");
-        let namespace = env_var!(required "KUBERNETES_NAMESPACE");
-        let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
-        let scale_spec = serde_json::json!({
-          "spec": { "replicas": 0 }
-        });
-        let patch_params = PatchParams::default();
-        let scale_after = deployments.patch_scale(&deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await;
+        let scale_after = scale_to_target(&deployment_name,0).await;
         match scale_after {
           Ok(_) => State::Inactive(
               StateValue{
@@ -158,6 +151,17 @@ impl State {
       },
     }
   }
+}
+
+async fn scale_to_target(deployment_name: &str, replicas: u32) -> Result<Scale, Error>  {
+  let client = Client::try_default().await.expect("getting default client");
+  let namespace = env_var!(required "KUBERNETES_NAMESPACE");
+  let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
+  let scale_spec = serde_json::json!({
+    "spec": { "replicas": replicas }
+  });
+  let patch_params = PatchParams::default();
+  deployments.patch_scale(deployment_name, &patch_params, &Patch::Merge(&scale_spec)).await
 }
 
 pub fn get_epoch_seconds() -> u64 {
@@ -217,7 +221,7 @@ pub async fn run(){
         let d_name = deployment_name.clone();
         let mut trigger_map = StateTriggerMap::new();
         let labels = deployment.metadata.labels.unwrap();
-        let mut threshold = 100u32;
+        let mut threshold = 100i64;
         for (key,val) in labels {
           if key.starts_with("tibcoems.apimeister.com/queue") {
             //check known queues
@@ -244,7 +248,7 @@ pub async fn run(){
             //add to trigger map
             trigger_map.insert(d_name.clone(),0);
           }else if key.starts_with("tibcoems.apimeister.com/threshold") {
-            threshold = match val.parse::<u32>() {
+            threshold = match val.parse::<i64>() {
               Ok(result) => result,
               Err(_err) => 100
             };
