@@ -217,7 +217,11 @@ async fn scale(queue_name: &str, pending_messages: i64, outgoing_total_count: i6
 
   for deployment in &deployment_name {
     let state = match get_state(deployment) { Some(state) => state, None => continue };
-    let trigger: StateTrigger = (queue_name.to_string(), outgoing_total_count);
+    let trigger = StateTrigger{
+      destination_name: queue_name.to_string(),
+      outgoing_total_count,
+      pending_messages
+    };
     if pending_messages > 0 {
       //scale up
       let s2 = state.scale_up(trigger).await;

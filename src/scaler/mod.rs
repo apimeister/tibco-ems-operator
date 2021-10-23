@@ -12,8 +12,11 @@ use std::time::SystemTime;
 /// period to wait before a scale down can be performed
 const COOLDOWN_PERIOD_SECONDS: u64 = 60;
 
-/// StateTrigger with 0 being the destination name, 1 being the pending messages
-pub type StateTrigger = (String, i64);
+pub struct StateTrigger {
+  pub destination_name: String,
+  pub outgoing_total_count: i64,
+  pub pending_messages: i64,
+}
 /// TriggerMap contains of string (queue name) and i64 (outbound_message_count)
 type StateTriggerMap = HashMap<String, i64>;
 
@@ -59,7 +62,7 @@ impl State {
         let ts = get_epoch_seconds();
         let scale_after = scale_to_target(&deployment_name,1).await;
         let mut trigger_map = val.trigger.clone();
-        trigger_map.insert(trigger.0, trigger.1);
+        trigger_map.insert(trigger.destination_name, trigger.outgoing_total_count);
         match scale_after {
           Ok(_) => {
             State::Active(
@@ -87,11 +90,11 @@ impl State {
       State::Active(val) => {
         let mut trigger_map = val.trigger.clone();
         let ts = get_epoch_seconds();
-        trigger_map.insert(trigger.0,trigger.1);
+        trigger_map.insert(trigger.destination_name,trigger.outgoing_total_count);
         // check for scale to many
-        if trigger.1 > val.threshold {
+        if trigger.pending_messages > val.threshold {
           //determine scale target
-          let scale_to = (trigger.1 / val.threshold) as u32;
+          let scale_to = (trigger.pending_messages / val.threshold) as u32;
           if scale_to > val.replicas {
             info!("scaling up {} to {} replicas", val.deployment, scale_to);
             let scale_after = scale_to_target(&val.deployment,scale_to).await;
@@ -147,16 +150,16 @@ impl State {
       State::Active(val) => {
         let deployment_name = val.deployment.clone();
         let ts = get_epoch_seconds();
-        let trigger_name = trigger.0.clone();
-        let trigger_value = trigger.1;
+        let trigger_name = trigger.destination_name.clone();
+        let trigger_value = trigger.outgoing_total_count;
         let mut trigger_map = val.trigger.clone();
         let trigger_map_reader = val.trigger.clone();
         let default_value: i64 = 0;
         let old_out_total = trigger_map_reader.get(&trigger_name).or(Some(&default_value)).unwrap();
         trigger_map.insert(trigger_name,trigger_value);
         if old_out_total < &trigger_value {
-          debug!("{}: still processing message while scale_down() was called",trigger.0);
-          trigger_map.insert(trigger.0.clone(),trigger.1);
+          debug!("{}: still processing message while scale_down() was called",trigger.destination_name);
+          trigger_map.insert(trigger.destination_name.clone(),trigger.outgoing_total_count);
           return State::Active(StateValue{
             activity_timestamp: ts,
             trigger: trigger_map.clone(),
@@ -167,7 +170,7 @@ impl State {
         }
         if val.activity_timestamp + COOLDOWN_PERIOD_SECONDS > ts {
           //honor cooldown phase
-          debug!("{}: still in cooldown phase",trigger.0);
+          debug!("{}: still in cooldown phase",trigger.destination_name);
           return State::Active(val);
         }
         info!("scaling down {}",deployment_name);
