@@ -36,3 +36,12 @@ spec:
   replicas: 0
   ...
 ```
+
+#### Other Scaling Properties
+
+| property | default | description |
+|----------|---------|-------------|
+| scaling  | false   | enable scaling for deployment |
+| queue.*  | n/a     | destination to scale for |
+| threshold | 100    | scaling threshold for scaling to more then one engine |
+| maxScale  | 10     | max replicas for auto-scaling |

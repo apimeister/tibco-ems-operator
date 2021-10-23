@@ -1,3 +1,7 @@
+# tibco-ems-operator:46/2021-10-25
+
+* support scale to many (including threshold and maxScale label)
+
 # tibco-ems-operator:45/2021-09-19
 
 * fix creation of bridges, now all briges (Q-Q,T-T,T-Q,Q-T) are created
