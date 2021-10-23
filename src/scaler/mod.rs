@@ -90,16 +90,54 @@ impl State {
         trigger_map.insert(trigger.0,trigger.1);
         // check for scale to many
         if trigger.1 > val.threshold {
-
+          //determine scale target
+          let scale_to = (trigger.1 / val.threshold) as u32;
+          if scale_to > val.replicas {
+            info!("scaling up {} to {} replicas", val.deployment, scale_to);
+            let scale_after = scale_to_target(&val.deployment,scale_to).await;
+            match scale_after {
+              Ok(_) => {
+                State::Active(
+                  StateValue{
+                    activity_timestamp: ts,
+                    trigger: trigger_map,
+                    deployment: val.deployment,
+                    replicas: scale_to,
+                    threshold: val.threshold,
+                  })
+              },
+              Err(err) => {
+                error!("scale up failed: {:?}",err);
+                State::Active(
+                  StateValue{
+                    activity_timestamp: ts,
+                    trigger: trigger_map,
+                    deployment: val.deployment,
+                    replicas: val.replicas,
+                    threshold: val.threshold,
+                  })
+              },
+            }
+          }else{
+            State::Active(
+              StateValue{
+                activity_timestamp: ts,
+                trigger: trigger_map,
+                deployment: val.deployment,
+                replicas: val.replicas,
+                threshold: val.threshold,
+              })
+          }
+        } else{
+          State::Active(
+            StateValue{
+              activity_timestamp: ts,
+              trigger: trigger_map,
+              deployment: val.deployment,
+              replicas: val.replicas,
+              threshold: val.threshold,
+            })
         }
-        State::Active(
-          StateValue{
-            activity_timestamp: ts,
-            trigger: trigger_map,
-            deployment: val.deployment,
-            replicas: 1,
-            threshold: val.threshold,
-          })
       },
     }
   }
