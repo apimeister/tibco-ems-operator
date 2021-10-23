@@ -43,6 +43,7 @@ pub struct StateValue{
   /// 100 message pending -> 2 replicas
   /// 1000 messages pending -> 10 replicas
   threshold: i64,
+  max_scale: u32,
 }
 /// Represents the state of the k8s Deployment
 #[derive(Clone,Debug,PartialEq)]
@@ -72,6 +73,7 @@ impl State {
                 deployment: val.deployment,
                 replicas: 1,
                 threshold: val.threshold,
+                max_scale: val.max_scale,
               })    
           },
           Err(err) => {
@@ -83,6 +85,7 @@ impl State {
                 deployment: val.deployment,
                 replicas: 0,
                 threshold: val.threshold,
+                max_scale: val.max_scale,
               })
           },
         }
@@ -107,6 +110,7 @@ impl State {
                     deployment: val.deployment,
                     replicas: scale_to,
                     threshold: val.threshold,
+                    max_scale: val.max_scale,
                   })
               },
               Err(err) => {
@@ -118,6 +122,7 @@ impl State {
                     deployment: val.deployment,
                     replicas: val.replicas,
                     threshold: val.threshold,
+                    max_scale: val.max_scale,
                   })
               },
             }
@@ -129,6 +134,7 @@ impl State {
                 deployment: val.deployment,
                 replicas: val.replicas,
                 threshold: val.threshold,
+                max_scale: val.max_scale,
               })
           }
         } else{
@@ -139,6 +145,7 @@ impl State {
               deployment: val.deployment,
               replicas: val.replicas,
               threshold: val.threshold,
+              max_scale: val.max_scale,
             })
         }
       },
@@ -166,6 +173,7 @@ impl State {
             deployment: val.deployment,
             replicas: 1,
             threshold: val.threshold,
+            max_scale: val.max_scale,
           });
         }
         if val.activity_timestamp + COOLDOWN_PERIOD_SECONDS > ts {
@@ -183,6 +191,7 @@ impl State {
                 deployment: val.deployment,
                 replicas: 0,
                 threshold: val.threshold,
+                max_scale: val.max_scale,
               }),
           Err(err) => {
             error!("scale down failed: {}",err);
@@ -240,6 +249,7 @@ pub async fn run(){
               deployment: deployment_name.clone(),
               replicas: 0,
               threshold: val.threshold,
+              max_scale: val.max_scale,
             });
           },
           (State::Inactive(val), 1) => {
@@ -249,6 +259,7 @@ pub async fn run(){
               deployment: deployment_name.clone(),
               replicas: 1,
               threshold: val.threshold,
+              max_scale: val.max_scale,
             });
           },
           _ => {
@@ -263,6 +274,7 @@ pub async fn run(){
         let mut trigger_map = StateTriggerMap::new();
         let labels = deployment.metadata.labels.unwrap();
         let mut threshold = 100i64;
+        let mut max_scale = 10u32;
         for (key,val) in labels {
           if key.starts_with("tibcoems.apimeister.com/queue") {
             //check known queues
@@ -293,6 +305,11 @@ pub async fn run(){
               Ok(result) => result,
               Err(_err) => 100
             };
+          }else if key.starts_with("tibcoems.apimeister.com/maxScale") {
+            max_scale = match val.parse::<u32>() {
+              Ok(result) => result,
+              Err(_err) => 10
+            };
           }
         }
         //check replica count and create new state object
@@ -305,6 +322,7 @@ pub async fn run(){
             deployment: deployment_name.clone(),
             replicas: 0,
             threshold,
+            max_scale,
           });
         }else{
           deployment_state = State::Active(StateValue{
@@ -313,6 +331,7 @@ pub async fn run(){
             deployment: deployment_name.clone(),
             replicas: 1,
             threshold,
+            max_scale,
           });
         }
         if !trigger_map.is_empty() {
