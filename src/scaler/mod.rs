@@ -97,7 +97,10 @@ impl State {
         // check for scale to many
         if trigger.pending_messages > val.threshold {
           //determine scale target
-          let scale_to = (trigger.pending_messages / val.threshold) as u32;
+          let mut scale_to = (trigger.pending_messages / val.threshold) as u32;
+          if scale_to > val.max_scale {
+            scale_to = val.max_scale;
+          }
           if scale_to > val.replicas {
             info!("scaling up {} to {} replicas", val.deployment, scale_to);
             let scale_after = scale_to_target(&val.deployment,scale_to).await;
