@@ -1,6 +1,7 @@
-# tibco-ems-operator:46/2021-10-25
+# tibco-ems-operator:46/2021-12-09
 
 * support scale to many (including threshold and maxScale label)
+* update to Tibco EMS 10.1
 
 # tibco-ems-operator:45/2021-09-19
 
