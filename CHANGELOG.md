@@ -3,6 +3,7 @@
 * update dependencies
 * change http impl to axum
 * support annotation based scaling
+* support container shutdown signal
 
 # tibco-ems-operator:46/2021-12-09
 
