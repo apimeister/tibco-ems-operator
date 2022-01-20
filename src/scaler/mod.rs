@@ -270,7 +270,7 @@ pub async fn run(){
         };
         known_scalings.insert(deployment_name,deployment_state);
       }else{
-        info!("Found Deployment: {}", deployment_name);
+        debug!("Found Deployment: {}", deployment_name);
         //get scale target trigger
         let d_name = deployment_name.clone();
         let mut trigger_map = StateTriggerMap::new();
