@@ -2,7 +2,6 @@ use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
 use kube::{api::{Api, ListParams, ResourceExt, WatchEvent}, Client};
 use kube::CustomResource;
-use hyper::Result;
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
@@ -27,7 +26,7 @@ pub static KNOWN_BRIDGES: Lazy<Mutex<HashMap<String, Bridge>>> = Lazy::new(|| Mu
 ///used for sending admin operations
 static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
 
-pub async fn watch_bridges() -> Result<()>{
+pub async fn watch_bridges() -> Result<(),()>{
   let crds: Api<Bridge> = get_bridge_client().await;
   let lp = ListParams::default();
 

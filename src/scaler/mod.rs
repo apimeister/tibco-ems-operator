@@ -184,7 +184,7 @@ impl State {
           debug!("{}: still in cooldown phase",trigger.destination_name);
           return State::Active(val);
         }
-        info!("scaling down {}",deployment_name);
+        info!("scaling down {deployment_name}");
         let scale_after = scale_to_target(&deployment_name,0).await;
         match scale_after {
           Ok(_) => State::Inactive(
@@ -242,40 +242,42 @@ pub async fn run(){
       if known_scalings.contains_key(&deployment_name) {
         let state = known_scalings.get(&deployment_name).unwrap();
         //check replica count and create new state object
-        let deployment_state: State;
         let replica_count = deployment.spec.unwrap().replicas.unwrap();
-        match (state,replica_count) {
+        let deployment_state: State = match (state,replica_count) {
           (State::Active(val), 0) => {
-            deployment_state = State::Inactive(StateValue{
+            State::Inactive(StateValue{
               activity_timestamp: get_epoch_seconds(),
               trigger:  val.trigger.clone(),
               deployment: deployment_name.clone(),
               replicas: 0,
               threshold: val.threshold,
               max_scale: val.max_scale,
-            });
+            })
           },
           (State::Inactive(val), 1) => {
-            deployment_state = State::Active(StateValue{
+            State::Active(StateValue{
               activity_timestamp: get_epoch_seconds(),
               trigger:  val.trigger.clone(),
               deployment: deployment_name.clone(),
               replicas: 1,
               threshold: val.threshold,
               max_scale: val.max_scale,
-            });
+            })
           },
           _ => {
-            deployment_state = state.clone();
+            state.clone()
           }
-        }
+        };
         known_scalings.insert(deployment_name,deployment_state);
       }else{
         info!("Found Deployment: {}", deployment_name);
         //get scale target trigger
         let d_name = deployment_name.clone();
         let mut trigger_map = StateTriggerMap::new();
-        let labels = deployment.metadata.labels.unwrap();
+        let mut labels = deployment.metadata.labels.unwrap();
+        if let Some(mut annotations) = deployment.metadata.annotations {
+          labels.append(&mut annotations);
+        }
         let mut threshold = 100i64;
         let mut max_scale = 10u32;
         for (key,val) in labels {
@@ -299,7 +301,7 @@ pub async fn run(){
               }
             }else{
               //queue does not exist
-              warn!("queue cannot be monitored, because it does not exists: {}",queue_name);
+              warn!("queue cannot be monitored, because it does not exists: {queue_name}");
             }
             //add to trigger map
             trigger_map.insert(d_name.clone(),0);
@@ -316,27 +318,27 @@ pub async fn run(){
           }
         }
         //check replica count and create new state object
-        let deployment_state: State;
+        
         let replica_count = deployment.spec.unwrap().replicas.unwrap();
-        if replica_count == 0 {
-          deployment_state = State::Inactive(StateValue{
+        let deployment_state: State = if replica_count == 0 {
+          State::Inactive(StateValue{
             activity_timestamp: get_epoch_seconds(),
             trigger:  trigger_map.clone(),
             deployment: deployment_name.clone(),
             replicas: 0,
             threshold,
             max_scale,
-          });
+          })
         }else{
-          deployment_state = State::Active(StateValue{
+          State::Active(StateValue{
             activity_timestamp: get_epoch_seconds(),
             trigger: trigger_map.clone(),
             deployment: deployment_name.clone(),
             replicas: 1,
             threshold,
             max_scale,
-          });
-        }
+          })
+        };
         if !trigger_map.is_empty() {
           known_scalings.insert(deployment_name, deployment_state);
         }

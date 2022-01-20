@@ -1,3 +1,9 @@
+# tibco-ems-operator:47/2022-01-20
+
+* update dependencies
+* change http impl to axum
+* support annotation based scaling
+
 # tibco-ems-operator:46/2021-12-09
 
 * support scale to many (including threshold and maxScale label)

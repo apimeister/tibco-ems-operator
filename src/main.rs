@@ -1,11 +1,16 @@
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Result, Server, StatusCode};
-use hyper::header::CONTENT_TYPE;
+use axum::{
+  routing::get,
+  http::{StatusCode, Uri},
+  http::HeaderMap,
+  response::IntoResponse,
+  Json, Router,
+};
 use tibco_ems::admin::{QueueInfo, TopicInfo};
 use tibco_ems::Session;
 use std::panic;
 use std::process;
 use urlencoding::decode;
+use tokio::signal::unix::{signal, SignalKind};
 
 mod queue;
 mod topic;
@@ -17,166 +22,149 @@ extern crate log;
 #[macro_use]
 extern crate env_var;
 
-async fn respond(req: Request<Body>) -> Result<Response<Body>> {
-  let uri = req.uri().path();
-  trace!("{} {}",req.method(),uri);
-
-  // sort by usage, queue scaler, most used
-  let response = match uri {
-    x if x.starts_with("/queue/") => {
-      let prefix_rm_uri = uri.strip_prefix("/queue/").unwrap();
-      let mut json_string;
-      let queue_name: String = decode(prefix_rm_uri).unwrap().into_owned();
-      if queue_name.contains('|') {
-        //multiple queues
-        let queue_list: Vec<&str> = queue_name.split('|').collect();
-        let all_queues = &mut QueueInfo{
-          name: "mixed".to_string(),
-          pending_messages: Some(0),
-          consumer_count: Some(0),
-          ..Default::default()
-        };
-        //get queues 
-        let c_map = queue::QUEUES.lock().unwrap();
-        let mut pending_messages = 0;
-        let mut consumer_count = 0;
-        for key in c_map.keys() {
-          let qinfo = c_map.get(key).unwrap();
-          for q in &queue_list {
-            if q == &qinfo.name {
-              pending_messages += qinfo.pending_messages.unwrap();
-              consumer_count += qinfo.consumer_count.unwrap();
-            }
-          }
-        }
-        all_queues.pending_messages = Some(pending_messages);
-        all_queues.consumer_count = Some(consumer_count);
-        
-        json_string = serde_json::to_string(all_queues).unwrap();
-      } else {
-        //get single queue
-        let queue_info = &mut QueueInfo{
-          name: queue_name.to_string(),
-          pending_messages: Some(0),
-          consumer_count: Some(0),
-          ..Default::default()
-        };
-        json_string = serde_json::to_string(queue_info).unwrap();
-        
-        let c_map = queue::QUEUES.lock().unwrap();
-        for key in c_map.keys() {
-          let qinfo = c_map.get(key).unwrap();
-          if qinfo.name == queue_name {
-            json_string = serde_json::to_string(qinfo).unwrap();
-          }
+async fn get_queue_stats(
+  uri: Uri,
+) -> impl IntoResponse {
+  let uri = uri.path();
+  trace!("{uri}");
+  let prefix_rm_uri = uri.strip_prefix("/queue/").unwrap();
+  let queue_name: String = decode(prefix_rm_uri).unwrap().into_owned();
+  if queue_name.contains('|') {
+    //multiple queues
+    let queue_list: Vec<&str> = queue_name.split('|').collect();
+    let all_queues = &mut QueueInfo{
+      name: "mixed".to_string(),
+      pending_messages: Some(0),
+      consumer_count: Some(0),
+      ..Default::default()
+    };
+    //get queues 
+    let c_map = queue::QUEUES.lock().unwrap();
+    let mut pending_messages = 0;
+    let mut consumer_count = 0;
+    for key in c_map.keys() {
+      let qinfo = c_map.get(key).unwrap();
+      for q in &queue_list {
+        if q == &qinfo.name {
+          pending_messages += qinfo.pending_messages.unwrap();
+          consumer_count += qinfo.consumer_count.unwrap();
         }
       }
-      Response::builder()
-      .status(StatusCode::OK)
-      .header(CONTENT_TYPE, "application/json; charset=utf-8")
-      .body(Body::from(json_string))
-      .unwrap()
-    },
-    "/metrics" => {
-      let mut body = "".to_owned();
-      body.push_str("# TYPE Q:pendingMessages gauge\n");
-      body.push_str("# TYPE Q:consumers gauge\n");
-      body.push_str("# TYPE T:pendingMessages gauge\n");
-      body.push_str("# TYPE T:subscribers gauge\n");
-      body.push_str("# TYPE T:durables gauge\n");
-      //get queues 
-      let c_map = queue::QUEUES.lock().unwrap();
-      for key in c_map.keys() {
-        let qinfo = c_map.get(key).unwrap();
-        let pending = format!("Q:pendingMessages{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.pending_messages.unwrap());
-        let consumers = format!("Q:consumers{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.consumer_count.unwrap());
-        body.push_str(&pending);
-        body.push_str(&consumers);
-      }
-      //get topics 
-      let c_map = topic::TOPICS.lock().unwrap();
-      for key in c_map.keys() {
-        let tinfo = c_map.get(key).unwrap();
-        let pending = format!("T:pendingMessages{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.pending_messages.unwrap());
-        let subscribers = format!("T:subscribers{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.subscriber_count.unwrap());
-        let durables = format!("T:durables{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.durable_count.unwrap());
-        body.push_str(&pending);
-        body.push_str(&subscribers);
-        body.push_str(&durables);
-      }
-      Response::builder()
-          .status(StatusCode::OK)
-          .header(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
-          .body(Body::from(body))
-          .unwrap()
-    },
-    x if x.starts_with("/topic/") => {
-      let prefix_rm_uri = uri.strip_prefix("/topic/").unwrap();
-      let mut json_string;
-      let topic_name: String = decode(prefix_rm_uri).unwrap().into_owned();
-      if topic_name.contains('|') {
-        //multiple topics
-        let topic_list: Vec<&str> = topic_name.split('|').collect();
-        let all_topics = &mut TopicInfo{
-          name: "mixed".to_string(),
-          pending_messages: Some(0),
-          subscriber_count: Some(0),
-          durable_count: Some(0),
-          ..Default::default()
-        };
-        //get topics 
-        let c_map = topic::TOPICS.lock().unwrap();
-        let mut pending_messages = 0;
-        let mut subscriber_count = 0;
-        let mut durable_count = 0;
-        for key in c_map.keys() {
-          let tinfo = c_map.get(key).unwrap();
-          for t in &topic_list {
-            if t == &tinfo.name {
-              pending_messages += tinfo.pending_messages.unwrap();
-              subscriber_count += tinfo.subscriber_count.unwrap();
-              durable_count += tinfo.durable_count.unwrap();
-            }
-          }
-        }
-        all_topics.pending_messages = Some(pending_messages);
-        all_topics.subscriber_count = Some(subscriber_count);
-        all_topics.durable_count = Some(durable_count);
-        json_string = serde_json::to_string(all_topics).unwrap();
-      } else {
-        //get single topic 
-        let topic_info = &mut TopicInfo{
-          name: topic_name.to_string(),
-          pending_messages: Some(0),
-          subscriber_count: Some(0),
-          durable_count: Some(0),
-          ..Default::default()
-        };
-        json_string = serde_json::to_string(topic_info).unwrap();
-        let c_map = topic::TOPICS.lock().unwrap();
-        for key in c_map.keys() {
-          let tinfo = c_map.get(key).unwrap();
-          if tinfo.name == topic_name {
-            json_string = serde_json::to_string(tinfo).unwrap();
-          }
-        }
-      }
-      Response::builder()
-      .status(StatusCode::OK)
-      .header(CONTENT_TYPE, "application/json; charset=utf-8")
-      .body(Body::from(json_string))
-      .unwrap()
-    },
-    _ => {
-      error!("unkown endpoint: {}",uri);
-      Response::builder()
-          .status(StatusCode::NOT_FOUND)
-          .header(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")
-          .body(Body::from(""))
-          .unwrap()
     }
-  };
-  Ok(response)
+    all_queues.pending_messages = Some(pending_messages);
+    all_queues.consumer_count = Some(consumer_count);
+    (StatusCode::OK, Json(all_queues.clone()))
+  } else {
+    //get single queue
+    let c_map = queue::QUEUES.lock().unwrap();
+    for key in c_map.keys() {
+      let qinfo = c_map.get(key).unwrap();
+      if qinfo.name == queue_name {
+        return (StatusCode::OK, Json(qinfo.clone()));
+      }
+    }
+    //return default if nothing is found
+    let queue_info = QueueInfo{
+      name: queue_name,
+      pending_messages: Some(0),
+      consumer_count: Some(0),
+      ..Default::default()
+    };
+    (StatusCode::OK, Json(queue_info))
+  }
+}
+
+async fn get_topic_stats(
+  uri: Uri,
+) -> impl IntoResponse {
+  let uri = uri.path();
+  trace!("{uri}");
+  let prefix_rm_uri = uri.strip_prefix("/topic/").unwrap();
+  let topic_name: String = decode(prefix_rm_uri).unwrap().into_owned();
+  if topic_name.contains('|') {
+    //multiple topics
+    let topic_list: Vec<&str> = topic_name.split('|').collect();
+    let all_topics = &mut TopicInfo{
+      name: "mixed".to_string(),
+      pending_messages: Some(0),
+      subscriber_count: Some(0),
+      durable_count: Some(0),
+      ..Default::default()
+    };
+    //get topics 
+    let c_map = topic::TOPICS.lock().unwrap();
+    let mut pending_messages = 0;
+    let mut subscriber_count = 0;
+    let mut durable_count = 0;
+    for key in c_map.keys() {
+      let tinfo = c_map.get(key).unwrap();
+      for t in &topic_list {
+        if t == &tinfo.name {
+          pending_messages += tinfo.pending_messages.unwrap();
+          subscriber_count += tinfo.subscriber_count.unwrap();
+          durable_count += tinfo.durable_count.unwrap();
+        }
+      }
+    }
+    all_topics.pending_messages = Some(pending_messages);
+    all_topics.subscriber_count = Some(subscriber_count);
+    all_topics.durable_count = Some(durable_count);
+    (StatusCode::OK, Json(all_topics.clone()))
+  } else {
+    //get single topic 
+    let c_map = topic::TOPICS.lock().unwrap();
+    for key in c_map.keys() {
+      let tinfo = c_map.get(key).unwrap();
+      if tinfo.name == topic_name {
+        return (StatusCode::OK, Json(tinfo.clone()));
+      }
+    }
+    //return default if nothing is found
+    let topic_info = &mut TopicInfo{
+      name: topic_name,
+      pending_messages: Some(0),
+      subscriber_count: Some(0),
+      durable_count: Some(0),
+      ..Default::default()
+    };
+    (StatusCode::OK, Json(topic_info.clone()))
+  }
+}
+
+async fn get_metrics(
+  uri: Uri,
+) -> impl IntoResponse {
+  let uri = uri.path();
+  trace!("{uri}");
+  let mut body = "".to_owned();
+  body.push_str("# TYPE Q:pendingMessages gauge\n");
+  body.push_str("# TYPE Q:consumers gauge\n");
+  body.push_str("# TYPE T:pendingMessages gauge\n");
+  body.push_str("# TYPE T:subscribers gauge\n");
+  body.push_str("# TYPE T:durables gauge\n");
+  //get queues 
+  let c_map = queue::QUEUES.lock().unwrap();
+  for key in c_map.keys() {
+    let qinfo = c_map.get(key).unwrap();
+    let pending = format!("Q:pendingMessages{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.pending_messages.unwrap());
+    let consumers = format!("Q:consumers{{queue=\"{}\" instance=\"EMS-ESB\"}} {}\n",qinfo.name,qinfo.consumer_count.unwrap());
+    body.push_str(&pending);
+    body.push_str(&consumers);
+  }
+  //get topics 
+  let c_map = topic::TOPICS.lock().unwrap();
+  for key in c_map.keys() {
+    let tinfo = c_map.get(key).unwrap();
+    let pending = format!("T:pendingMessages{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.pending_messages.unwrap());
+    let subscribers = format!("T:subscribers{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.subscriber_count.unwrap());
+    let durables = format!("T:durables{{topic=\"{}\" instance=\"EMS-ESB\"}} {}\n",tinfo.name,tinfo.durable_count.unwrap());
+    body.push_str(&pending);
+    body.push_str(&subscribers);
+    body.push_str(&durables);
+  }
+  let mut headers = HeaderMap::new();
+  headers.insert("Content-Type", "text/plain; version=0.0.4; charset=utf-8".parse().unwrap());
+  (StatusCode::OK, headers, body)
 }
 
 pub fn init_admin_connection() -> Session{
@@ -186,6 +174,10 @@ pub fn init_admin_connection() -> Session{
   let conn = tibco_ems::admin::connect(&server_url, &username, &password).unwrap();
   info!("creating admin connection");
   conn.session().unwrap()
+}
+
+async fn api() -> String {
+  "tibco-ems-operator".to_string()
 }
 
 #[tokio::main]
@@ -219,15 +211,31 @@ async fn main() {
     let _ignore = tokio::spawn(scaler::run());
   }
 
+  //watch for shutdown signal
+  tokio::spawn(async {
+    info!("initiating signal hook");
+    let mut stream = signal(SignalKind::terminate()).unwrap();
+    loop {
+        stream.recv().await;
+        info!("got SIGTERM, shutting down");
+        std::process::exit(0);
+    }
+  });
+
   //spawn metrics server
   let addr = "0.0.0.0:8080".parse().unwrap();
-  let make_service = make_service_fn(|_|
-      async { Ok::<_, hyper::Error>(service_fn(respond)) });
-  let server = Server::bind(&addr).serve(make_service);
-  info!("Listening on http://{}", addr);
-  if let Err(e) = server.await {
-      error!("server error: {}", e);
-  }
+  let app = Router::new()
+      .route("/", get(api))
+      .route("/queue/{queuename}", get(get_queue_stats))
+      .route("/topic/{topicname}", get(get_topic_stats))
+      .route("/metrics", get(get_metrics));
+
+  info!("listening on {}", addr);
+  axum::Server::bind(&addr)
+      .serve(app.into_make_service())
+      .await
+      .unwrap();
+      
 
   std::thread::park();
   info!("done");

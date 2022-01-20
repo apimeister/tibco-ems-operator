@@ -7,14 +7,13 @@ use tokio::time::{self, Duration};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-use hyper::Result;
 use schemars::JsonSchema;
 use env_var::env_var;
 use tibco_ems::admin::TopicInfo;
 use tibco_ems::Session;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
-#[kube(group = "tibcoems.apimeister.com", version = "v1", 
+#[kube(group = "tibcoems.apimeister.com", version = "v1",
     kind="Topic",
     status="TopicStatus",
     namespaced)]
@@ -47,7 +46,7 @@ static TOPIC_ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(su
 ///used for sending admin operations
 static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
 
-pub async fn watch_topics() -> Result<()>{
+pub async fn watch_topics() -> Result<(),()>{
   let crds: Api<Topic> = get_topic_client().await;
   let updater: Api<Topic> = crds.clone(); 
   let lp = ListParams::default();
@@ -115,7 +114,7 @@ pub async fn watch_topics() -> Result<()>{
   }
 }
 
-pub async fn watch_topics_status() -> Result<()>{
+pub async fn watch_topics_status() -> Result<(),()>{
   let status_refresh_in_ms: u64 = env_var!(optional "STATUS_REFRESH_IN_MS", default: "10000").parse().unwrap();
   let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
   let mut interval = time::interval(Duration::from_millis(status_refresh_in_ms));
