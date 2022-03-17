@@ -1,6 +1,11 @@
 # tibco-ems-operator:47/2022-01-20
 
 * update dependencies
+* introduce object responsibilities (EMS instance ownership through annotation)
+
+# tibco-ems-operator:47/2022-01-20
+
+* update dependencies
 * change http impl to axum
 * support annotation based scaling
 * support container shutdown signal

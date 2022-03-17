@@ -16,6 +16,7 @@ This project is a work in progress. It is not yet functional and I will update t
 | PASSWORD | required | {password} | |
 | ADMIN_COMMAND_TIMEOUT_MS | optional | 60000 | command timeout in milliseconds, default is 60000 |
 | ENABLE_SCALING | optional | FALSE | if set to TRUE (all caps), deployment can be scaled through the operator |
+| RESPONSIBLE_FOR | optional | {ems_instance} | if set, only objects with the owner annotation will be honoered by this operator instance |
 
 ## Scaling
 
@@ -45,3 +46,37 @@ spec:
 | queue.*  | n/a     | destination to scale for |
 | threshold | 100    | scaling threshold for scaling to more then one engine |
 | maxScale  | 10     | max replicas for auto-scaling |
+
+## Ownership
+
+The operator can be deploymed mutliple times into one namespace, as long as the ownership of the managed objects is also explicitly defined.
+
+### Operator
+
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tibco-ems-operator
+spec:
+  template:
+    spec:
+      containers:
+      - name: tibco-ems-operator
+        image: tibco-ems-operator:latest
+        env:
+          - name: RESPONSIBLE_FOR
+            value: EMS_CENTRAL_1
+```
+
+### Managed object
+
+```
+apiVersion: tibcoems.apimeister.com/v1
+kind: Queue
+metadata:
+  name: q.test.1
+  tibcoems.apimeister.com/owner: EMS_CENTRAL_1
+spec: {}
+```

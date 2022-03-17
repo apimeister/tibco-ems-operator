@@ -184,6 +184,11 @@ async fn api() -> String {
 async fn main() {
   env_logger::init();
   info!("starting tibco-ems-operator");
+  // look for responsible settings
+  let responsible = env_var!(optional "RESPONSIBLE_FOR");
+  if !responsible.is_empty() {
+    info!("RESPONSIBLE_FOR {responsible} => only object for that instance will be monitored");
+  }
 
   //add panic hook to shutdown engine on error
   let orig_hook = panic::take_hook();
@@ -213,7 +218,6 @@ async fn main() {
 
   //watch for shutdown signal
   tokio::spawn(async {
-    info!("initiating signal hook");
     let mut stream = signal(SignalKind::terminate()).unwrap();
     loop {
         stream.recv().await;

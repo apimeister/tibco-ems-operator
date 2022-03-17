@@ -30,8 +30,13 @@ pub async fn watch_bridges() -> Result<(),()>{
   let crds: Api<Bridge> = get_bridge_client().await;
   let lp = ListParams::default();
 
+  let responsible_for = env_var!(optional "RESPONSIBLE_FOR");
+  if responsible_for.is_empty() {
+    info!("subscribing to events of type bridges.tibcoems.apimeister.com/v1");
+  }else{
+    info!("subscribing to events of type bridges.tibcoems.apimeister.com/v1 for instance {responsible_for}");
+  }
   let mut last_version = String::from("0");
-  info!("subscribing to events of type bridges.tibcoems.apimeister.com/v1");
   loop{
     debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
@@ -45,36 +50,50 @@ pub async fn watch_bridges() -> Result<(),()>{
 
       match status {
         WatchEvent::Added(bridge) =>{
-          {
-            let mut res = KNOWN_BRIDGES.lock().unwrap();
-            let bname = ResourceExt::name(&bridge);
-            match res.get(&bname) {
-              Some(_bridge) => debug!("bridge already known {}", &bname),
+          let mut res = KNOWN_BRIDGES.lock().unwrap();
+          let bridge_name = ResourceExt::name(&bridge);
+          //check responsibility for bridge
+          if check_responsibility(&bridge) {
+            match res.get(&bridge_name) {
+              Some(_bridge) => debug!("bridge already known {}", &bridge_name),
               None => {
-                info!("adding bridge {}", &bname);
+                info!("adding bridge {}", &bridge_name);
                 create_bridge(&bridge);
-                res.insert(bname, bridge.clone());
+                res.insert(bridge_name, bridge.clone());
               },
             }
+          } else {
+            trace!("not responsible for bridge {}", &bridge_name);
           }
           last_version = ResourceExt::resource_version(&bridge).unwrap();
         },
         WatchEvent::Modified(bridge) => {
-          info!("Modified {}", ResourceExt::name(&bridge));
-          create_bridge(&bridge);
+          let bridge_name = ResourceExt::name(&bridge);
+          info!("Modified {}", bridge_name);
+          //check responsibility for bridge
+          if check_responsibility(&bridge) {
+            create_bridge(&bridge);
+          } else {
+            trace!("not responsible for bridge {}", &bridge_name);
+          }
           last_version = ResourceExt::resource_version(&bridge).unwrap();          
         },
         WatchEvent::Deleted(bridge) => {
-          let bname = ResourceExt::name(&bridge);
-          let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-          if do_not_delete == "TRUE" {
-            warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", bname);
-          }else{
-            info!("deleting bridge {}", &bname);
-            delete_bridge(&bridge);
+          let bridge_name = ResourceExt::name(&bridge);
+          //check responsibility for bridge
+          if check_responsibility(&bridge) {
+            let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
+            if do_not_delete == "TRUE" {
+              warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", bridge_name);
+            }else{
+              info!("deleting bridge {}", &bridge_name);
+              delete_bridge(&bridge);
+            }
+            let mut res = KNOWN_BRIDGES.lock().unwrap();
+            res.remove(&bridge_name);
+          } else {
+            trace!("not responsible for bridge {}", &bridge_name);
           }
-          let mut res = KNOWN_BRIDGES.lock().unwrap();
-          res.remove(&bname);
           last_version = ResourceExt::resource_version(&bridge).unwrap();
         },
         WatchEvent::Error(e) => {
@@ -150,4 +169,24 @@ fn create_bridge_object(bridge: &Bridge) -> BridgeInfo {
   // show what we have created in debug mode
   debug!("{:?}", bridge_info);
   bridge_info
+}
+
+/// checks whether the monitored ems is responsible for this queue instance
+fn check_responsibility(bridge: &Bridge) -> bool {
+  let responsible_for = std::env::var("RESPONSIBLE_FOR");
+  match responsible_for {
+    Ok(val) => {
+      let annotations = bridge.annotations();
+      for (key, value) in annotations {
+        if key == "tibcoems.apimeister.com/owner" && value == &val {
+          return true;
+        }
+      }
+    },
+    Err(_err) => {
+      //if not setting is found, assume all queues are responsible
+      return true;
+    },
+  }
+  false
 }

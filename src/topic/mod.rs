@@ -51,8 +51,13 @@ pub async fn watch_topics() -> Result<(),()>{
   let updater: Api<Topic> = crds.clone(); 
   let lp = ListParams::default();
 
+  let responsible_for = env_var!(optional "RESPONSIBLE_FOR");
+  if responsible_for.is_empty() {
+    info!("subscribing to events of type topics.tibcoems.apimeister.com/v1");
+  }else{
+    info!("subscribing to events of type topics.tibcoems.apimeister.com/v1 for instance {responsible_for}");
+  }
   let mut last_version: String = "0".to_owned();
-  info!("subscribing to events of type topics.tibcoems.apimeister.com/v1");
   loop{
     debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
@@ -66,36 +71,46 @@ pub async fn watch_topics() -> Result<(),()>{
 
       match status {
         WatchEvent::Added(mut topic) =>{
-          {
-            let mut res = KNOWN_TOPICS.lock().unwrap();
-            let topic_name = get_topic_name(&topic);
-            match res.get(&topic_name) {
-              Some(_topic) => debug!("topic already known {}", &topic_name),
-              None => {
-                info!("adding topic {}", &topic_name);
-                create_topic(&mut topic);
-                res.insert(topic_name, topic.clone());
-              },
-            }
-          }
-          if topic.status.is_none() {
-            let name = ResourceExt::name(&topic);
-            let q_json = serde_json::to_string(&topic).unwrap();
-            let pp = PostParams::default();
-            let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-          };
+          let topic_name = get_topic_name(&topic);
           last_version = ResourceExt::resource_version(&topic).unwrap();
+          //check responsibilty for topic
+          if check_responsibility(&topic) {
+            {
+              let mut res = KNOWN_TOPICS.lock().unwrap();
+              match res.get(&topic_name) {
+                Some(_topic) => debug!("topic already known {}", &topic_name),
+                None => {
+                  info!("adding topic {}", &topic_name);
+                  create_topic(&mut topic);
+                  res.insert(topic_name, topic.clone());
+                },
+              }
+            }
+            if topic.status.is_none() {
+              let name = ResourceExt::name(&topic);
+              let q_json = serde_json::to_string(&topic).unwrap();
+              let pp = PostParams::default();
+              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+            }
+          } else {
+            trace!("not responsible for topic {}", &topic_name);
+          }
         },
         WatchEvent::Deleted(topic) =>{
           let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-          let tname = get_topic_name(&topic);
-          if do_not_delete == "TRUE" {
-            warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", tname);
-          }else{
-            delete_topic(&topic);
+          let topic_name = get_topic_name(&topic);
+          //check responsibility for queue
+          if check_responsibility(&topic) {
+            if do_not_delete == "TRUE" {
+              warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", topic_name);
+            }else{
+              delete_topic(&topic);
+            }
+            let mut res = KNOWN_TOPICS.lock().unwrap();
+            res.remove(&topic_name);
+          } else {
+            trace!("not responsible for topic {}", &topic_name);
           }
-          let mut res = KNOWN_TOPICS.lock().unwrap();
-          res.remove(&tname);
           last_version = ResourceExt::resource_version(&topic).unwrap();
         },
         WatchEvent::Error(e) => {
@@ -264,4 +279,24 @@ fn delete_topic(topic: &Topic){
       panic!("failed to delete topic");
     },
   }
+}
+
+/// checks whether the monitored ems is responsible for this topic instance
+fn check_responsibility(topic: &Topic) -> bool {
+  let responsible_for = std::env::var("RESPONSIBLE_FOR");
+  match responsible_for {
+    Ok(val) => {
+      let annotations = topic.annotations();
+      for (key, value) in annotations {
+        if key == "tibcoems.apimeister.com/owner" && value == &val {
+          return true;
+        }
+      }
+    },
+    Err(_err) => {
+      //if not setting is found, assume all topic are responsible
+      return true;
+    },
+  }
+  false
 }

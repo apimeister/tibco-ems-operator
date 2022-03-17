@@ -48,14 +48,19 @@ pub static QUEUES: Lazy<Mutex<HashMap<String,QueueInfo>>> = Lazy::new(|| Mutex::
 static QUEUE_ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
 ///used for sending admin operations
 static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
-  
+ 
 pub async fn watch_queues() -> Result<(),()>{
   let crds: Api<Queue> = get_queue_client().await;
   let updater: Api<Queue> = crds.clone(); 
   let lp = ListParams::default();
 
+  let responsible_for = env_var!(optional "RESPONSIBLE_FOR");
+  if responsible_for.is_empty() {
+    info!("subscribing to events of type queues.tibcoems.apimeister.com/v1");
+  }else{
+    info!("subscribing to events of type queues.tibcoems.apimeister.com/v1 for instance {responsible_for}");
+  }
   let mut last_version = String::from("0");
-  info!("subscribing to events of type queues.tibcoems.apimeister.com/v1");
   loop{
     debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
@@ -69,36 +74,46 @@ pub async fn watch_queues() -> Result<(),()>{
 
       match status {
         WatchEvent::Added(mut queue) =>{
-          {
-            let mut res = KNOWN_QUEUES.lock().unwrap();
-            let queue_name = get_queue_name(&queue);
-            match res.get(&queue_name) {
-              Some(_queue) => debug!("queue already known {}", &queue_name),
-              None => {
-                info!("adding queue {}", &queue_name);
-                create_queue(&mut queue);
-                res.insert(queue_name, queue.clone());
-              },
-            }
-          }
-          if queue.status.is_none() {
-            let name = ResourceExt::name(&queue);
-            let q_json = serde_json::to_string(&queue).unwrap();
-            let pp = PostParams::default();
-            let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
-          }
+          let queue_name = get_queue_name(&queue);
           last_version = ResourceExt::resource_version(&queue).unwrap();
+          //check responsibility for queue
+          if check_responsibility(&queue) {
+            {
+              let mut res = KNOWN_QUEUES.lock().unwrap();
+              match res.get(&queue_name) {
+                Some(_queue) => debug!("queue already known {}", &queue_name),
+                None => {
+                    info!("adding queue {}", &queue_name);
+                    create_queue(&mut queue);
+                    res.insert(queue_name, queue.clone());
+                },
+              }
+            }
+            if queue.status.is_none() {
+              let name = ResourceExt::name(&queue);
+              let q_json = serde_json::to_string(&queue).unwrap();
+              let pp = PostParams::default();
+              let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
+            }
+          } else {
+            trace!("not responsible for queue {}", &queue_name);
+          }
         },
         WatchEvent::Deleted(queue) =>{
           let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
-          let qname = get_queue_name(&queue);
-          if do_not_delete == "TRUE" {
-            warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", qname);
-          }else{
-            delete_queue(&queue);
+          let queue_name = get_queue_name(&queue);
+          //check responsibility for queue
+          if check_responsibility(&queue) {
+            if do_not_delete == "TRUE" {
+              warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", queue_name);
+            }else{
+              delete_queue(&queue);
+            }
+            let mut res = KNOWN_QUEUES.lock().unwrap();
+            res.remove(&queue_name);
+          } else {
+            trace!("not responsible for queue {}", &queue_name);
           }
-          let mut res = KNOWN_QUEUES.lock().unwrap();
-          res.remove(&qname);
           last_version = ResourceExt::resource_version(&queue).unwrap();
         },
         WatchEvent::Error(e) => {
@@ -192,6 +207,27 @@ pub async fn watch_queues_status() -> Result<(),()>{
   }
 }
 
+/// checks whether the monitored ems is responsible for this queue instance
+fn check_responsibility(queue: &Queue) -> bool {
+  let responsible_for = std::env::var("RESPONSIBLE_FOR");
+  match responsible_for {
+    Ok(val) => {
+      let annotations = queue.annotations();
+      for (key, value) in annotations {
+        if key == "tibcoems.apimeister.com/owner" && value == &val {
+          return true;
+        }
+      }
+    },
+    Err(_err) => {
+      //if not setting is found, assume all queues are responsible
+      return true;
+    },
+  }
+  false
+}
+
+/// retrieves the queue name from the queue object
 fn get_target(queue_name: &str) -> Vec<String> {
   let targets = super::scaler::SCALE_TARGETS.lock().unwrap();
   if targets.contains_key(queue_name) {
@@ -201,11 +237,13 @@ fn get_target(queue_name: &str) -> Vec<String> {
   }
 }
 
+/// retrieves the state object for a queue from the KNOWN_STATES
 fn get_state(deployment_name: &str) -> Option<State> {
   let states = super::scaler::KNOWN_STATES.lock().unwrap();
   states.get(deployment_name).cloned()
 }
 
+/// inserts the state object into the KNOWN_STATES
 fn insert_state(deployment_name: String, state: State){
   let mut states = super::scaler::KNOWN_STATES.lock().unwrap();
   states.insert(deployment_name, state);
@@ -258,6 +296,7 @@ fn get_obj_name_from_queue(queue: &Queue) -> String {
   queue.metadata.name.clone().unwrap()
 }
 
+/// creates a queue within the ems
 fn create_queue(queue: &mut Queue){
   let qname = get_queue_name(queue);
 
@@ -303,6 +342,7 @@ fn create_queue(queue: &mut Queue){
   queue.status =  Some(status);
 }
 
+/// deletes a queue within the ems
 fn delete_queue(queue: &Queue){
   let qname = get_queue_name(queue);
   info!("deleting queue {}", qname);
