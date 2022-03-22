@@ -2,6 +2,7 @@
 
 * update dependencies
 * introduce object responsibilities (EMS instance ownership through annotation)
+* fix API query path
 
 # tibco-ems-operator:47/2022-01-20
 
