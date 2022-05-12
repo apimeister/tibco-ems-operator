@@ -1,4 +1,13 @@
-# tibco-ems-operator:47/2022-01-20
+# tibco-ems-operator:50/2022-05-12
+
+* refine logging for scale up
+* update dependencies
+
+# tibco-ems-operator:49/2022-03-23
+
+* update dependencies
+
+# tibco-ems-operator:48/2022-03-23
 
 * update dependencies
 * introduce object responsibilities (EMS instance ownership through annotation)

@@ -1,11 +1,11 @@
 [package]
 name = "tibco-ems-operator"
-version = "48.0.0"
+version = "50.0.0"
 authors = ["Jens Walter <jens@apimeister.com>"]
 edition = "2021"
 
 [dependencies]
-kube = { version = "0.69", features = ["derive"] }
+kube = { version = "0.71", features = ["derive"] }
 k8s-openapi = { version = "0.14", default-features = false, features = ["v1_20"] }
 schemars = { version = "0.8", features = ["chrono"] }
 chrono = "0.4"
@@ -21,4 +21,4 @@ tibco_ems = "0.4"
 # tibco_ems = { path = "../tibco-ems-rs", version = "0.3.7"}
 env-var = "1"
 urlencoding = "2"
-axum = { version = "0.4" }
+axum = { version = "0.5" }

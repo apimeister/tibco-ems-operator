@@ -102,7 +102,7 @@ impl State {
             scale_to = val.max_scale;
           }
           if scale_to > val.replicas {
-            info!("scaling up {} to {} replicas", val.deployment, scale_to);
+            info!("scaling up {} {}->{} replicas", val.deployment, val.replicas, scale_to);
             let scale_after = scale_to_target(&val.deployment,scale_to).await;
             match scale_after {
               Ok(_) => {
