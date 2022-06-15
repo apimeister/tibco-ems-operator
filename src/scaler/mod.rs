@@ -165,7 +165,7 @@ impl State {
         let mut trigger_map = val.trigger.clone();
         let trigger_map_reader = val.trigger.clone();
         let default_value: i64 = 0;
-        let old_out_total = trigger_map_reader.get(&trigger_name).or(Some(&default_value)).unwrap();
+        let old_out_total = trigger_map_reader.get(&trigger_name).unwrap_or(&default_value);
         trigger_map.insert(trigger_name,trigger_value);
         if old_out_total < &trigger_value {
           debug!("{}: still processing message while scale_down() was called",trigger.destination_name);
@@ -174,7 +174,7 @@ impl State {
             activity_timestamp: ts,
             trigger: trigger_map.clone(),
             deployment: val.deployment,
-            replicas: 1,
+            replicas: val.replicas,
             threshold: val.threshold,
             max_scale: val.max_scale,
           });
