@@ -1,4 +1,4 @@
-# tibco-ems-operator:51/2022-05-13
+# tibco-ems-operator:51/2022-06-15
 
 * switch base image to debian-slim
 * fix replica value for prevented scale_down
