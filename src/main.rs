@@ -8,9 +8,7 @@ use axum::{
 use tibco_ems::admin::{QueueInfo, TopicInfo};
 use tibco_ems::Session;
 use std::panic;
-use std::process;
 use urlencoding::decode;
-use tokio::signal::unix::{signal, SignalKind};
 
 mod queue;
 mod topic;
@@ -190,8 +188,10 @@ async fn main() {
     info!("RESPONSIBLE_FOR {responsible} => only object for that instance will be monitored");
   }
 
+  #[cfg(not(feature = "windows"))]
   //add panic hook to shutdown engine on error
   let orig_hook = panic::take_hook();
+  #[cfg(not(feature = "windows"))]
   panic::set_hook(Box::new(move |panic_info| {
       error!("receiving panic hook, shutting down engine");
       orig_hook(panic_info);
@@ -217,14 +217,7 @@ async fn main() {
   }
 
   //watch for shutdown signal
-  tokio::spawn(async {
-    let mut stream = signal(SignalKind::terminate()).unwrap();
-    loop {
-        stream.recv().await;
-        info!("got SIGTERM, shutting down");
-        std::process::exit(0);
-    }
-  });
+  tokio::spawn(sighup());
 
   //spawn metrics server
   let addr = "0.0.0.0:8080".parse().unwrap();
@@ -243,4 +236,21 @@ async fn main() {
 
   std::thread::park();
   info!("done");
+}
+
+#[cfg(not(feature = "windows"))]
+async fn sighup() {
+  let mut stream = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+  loop {
+      stream.recv().await;
+      info!("got SIGTERM, shutting down");
+      std::process::exit(0);
+  }
+}
+
+#[cfg(feature = "windows")]
+async fn sighup() {
+  tokio::signal::ctrl_c().await.unwrap();
+  info!("got SIGTERM, shutting down");
+  std::process::exit(0);
 }

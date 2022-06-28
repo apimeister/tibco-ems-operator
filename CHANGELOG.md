@@ -1,3 +1,9 @@
+
+# tibco-ems-operator:52/2022-06-15
+
+* add new feature windows to be able to code on windows
+  * please use `--features=windows` on all commands to make this work
+  * e.g. `cargo clippy --features=windows`
 # tibco-ems-operator:51/2022-06-15
 
 * switch base image to debian-slim
