@@ -195,7 +195,7 @@ async fn main() {
   panic::set_hook(Box::new(move |panic_info| {
       error!("receiving panic hook, shutting down engine");
       orig_hook(panic_info);
-      process::exit(1);
+      std::process::exit(1);
   }));
 
   let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
