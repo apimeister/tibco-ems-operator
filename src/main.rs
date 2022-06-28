@@ -8,6 +8,7 @@ use axum::{
 use tibco_ems::admin::{QueueInfo, TopicInfo};
 use tibco_ems::Session;
 use std::panic;
+use std::process;
 use urlencoding::decode;
 
 mod queue;
@@ -188,14 +189,12 @@ async fn main() {
     info!("RESPONSIBLE_FOR {responsible} => only object for that instance will be monitored");
   }
 
-  #[cfg(not(feature = "windows"))]
   //add panic hook to shutdown engine on error
   let orig_hook = panic::take_hook();
-  #[cfg(not(feature = "windows"))]
   panic::set_hook(Box::new(move |panic_info| {
       error!("receiving panic hook, shutting down engine");
       orig_hook(panic_info);
-      std::process::exit(1);
+      process::exit(1);
   }));
 
   let read_only = env_var!(optional "READ_ONLY", default:"FALSE");
