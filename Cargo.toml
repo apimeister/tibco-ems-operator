@@ -22,3 +22,6 @@ tibco_ems = "0.4"
 env-var = "1"
 urlencoding = "2"
 axum = { version = "0.5" }
+
+[features]
+windows = []
