@@ -237,7 +237,7 @@ async fn main() {
   info!("done");
 }
 
-#[cfg(not(feature = "windows"))]
+#[cfg(not(target_os = "windows"))]
 async fn sighup() {
   let mut stream = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
   loop {
@@ -247,7 +247,7 @@ async fn sighup() {
   }
 }
 
-#[cfg(feature = "windows")]
+#[cfg(target_os = "windows")]
 async fn sighup() {
   tokio::signal::ctrl_c().await.unwrap();
   info!("got SIGTERM, shutting down");
