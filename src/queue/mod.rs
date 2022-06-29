@@ -48,19 +48,22 @@ pub static QUEUES: Lazy<Mutex<HashMap<String,QueueInfo>>> = Lazy::new(|| Mutex::
 static QUEUE_ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
 ///used for sending admin operations
 static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::init_admin_connection()));
- 
+
 pub async fn watch_queues() -> Result<(),()>{
   let crds: Api<Queue> = get_queue_client().await;
   let updater: Api<Queue> = crds.clone(); 
-  let lp = ListParams::default();
+  let mut lp = ListParams::default();
 
-  let responsible_for = env_var!(optional "RESPONSIBLE_FOR");
-  if responsible_for.is_empty() {
-    info!("subscribing to events of type queues.tibcoems.apimeister.com/v1");
-  }else{
+  let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
+  if !responsible_for.is_empty() {
     info!("subscribing to events of type queues.tibcoems.apimeister.com/v1 for instance {responsible_for}");
+    lp = lp.labels(format!("tibcoems.apimeister.com/owner={responsible_for}").as_str());
+  } else {
+    info!("subscribing to events of type queues.tibcoems.apimeister.com/v1");
   }
+
   let mut last_version = String::from("0");
+
   loop{
     debug!("new loop iteration with offset {}",last_version);
     let watch_result = crds.watch(&lp, &last_version).await;
@@ -76,8 +79,6 @@ pub async fn watch_queues() -> Result<(),()>{
         WatchEvent::Added(mut queue) =>{
           let queue_name = get_queue_name(&queue);
           last_version = ResourceExt::resource_version(&queue).unwrap();
-          //check responsibility for queue
-          if check_responsibility(&queue) {
             {
               let mut res = KNOWN_QUEUES.lock().unwrap();
               match res.get(&queue_name) {
@@ -95,15 +96,10 @@ pub async fn watch_queues() -> Result<(),()>{
               let pp = PostParams::default();
               let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
             }
-          } else {
-            trace!("not responsible for queue {}", &queue_name);
-          }
         },
         WatchEvent::Deleted(queue) =>{
           let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
           let queue_name = get_queue_name(&queue);
-          //check responsibility for queue
-          if check_responsibility(&queue) {
             if do_not_delete == "TRUE" {
               warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", queue_name);
             }else{
@@ -111,9 +107,6 @@ pub async fn watch_queues() -> Result<(),()>{
             }
             let mut res = KNOWN_QUEUES.lock().unwrap();
             res.remove(&queue_name);
-          } else {
-            trace!("not responsible for queue {}", &queue_name);
-          }
           last_version = ResourceExt::resource_version(&queue).unwrap();
         },
         WatchEvent::Error(e) => {
@@ -205,26 +198,6 @@ pub async fn watch_queues_status() -> Result<(),()>{
     }
     interval.tick().await;
   }
-}
-
-/// checks whether the monitored ems is responsible for this queue instance
-fn check_responsibility(queue: &Queue) -> bool {
-  let responsible_for = std::env::var("RESPONSIBLE_FOR");
-  match responsible_for {
-    Ok(val) => {
-      let annotations = queue.annotations();
-      for (key, value) in annotations {
-        if key == "tibcoems.apimeister.com/owner" && value == &val {
-          return true;
-        }
-      }
-    },
-    Err(_err) => {
-      //if not setting is found, assume all queues are responsible
-      return true;
-    },
-  }
-  false
 }
 
 /// retrieves the queue name from the queue object

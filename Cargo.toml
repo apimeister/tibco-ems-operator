@@ -1,6 +1,6 @@
 [package]
 name = "tibco-ems-operator"
-version = "51.0.0"
+version = "53.0.0"
 authors = ["Jens Walter <jens@apimeister.com>"]
 edition = "2021"
 
@@ -22,6 +22,3 @@ tibco_ems = "0.4"
 env-var = "1"
 urlencoding = "2"
 axum = { version = "0.5" }
-
-[features]
-windows = []

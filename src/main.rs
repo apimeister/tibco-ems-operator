@@ -10,6 +10,8 @@ use tibco_ems::Session;
 use std::panic;
 use std::process;
 use urlencoding::decode;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
 
 mod queue;
 mod topic;
@@ -21,9 +23,16 @@ extern crate log;
 #[macro_use]
 extern crate env_var;
 
-async fn get_queue_stats(
-  uri: Uri,
-) -> impl IntoResponse {
+// look for responsible settings
+pub static RESPONSIBLE_FOR: Lazy<Mutex<String>> = Lazy::new(|| {
+  let rf = env_var!(required "RESPONSIBLE_FOR", default: "");
+  if !rf.is_empty() { 
+    info!("RESPONSIBLE_FOR {rf} => only object for that instance will be monitored"); 
+  };
+  Mutex::new(rf)
+});
+
+async fn get_queue_stats(uri: Uri) -> impl IntoResponse {
   let uri = uri.path();
   trace!("{uri}");
   let prefix_rm_uri = uri.strip_prefix("/queue/").unwrap();
@@ -73,9 +82,7 @@ async fn get_queue_stats(
   }
 }
 
-async fn get_topic_stats(
-  uri: Uri,
-) -> impl IntoResponse {
+async fn get_topic_stats(uri: Uri) -> impl IntoResponse {
   let uri = uri.path();
   trace!("{uri}");
   let prefix_rm_uri = uri.strip_prefix("/topic/").unwrap();
@@ -130,9 +137,7 @@ async fn get_topic_stats(
   }
 }
 
-async fn get_metrics(
-  uri: Uri,
-) -> impl IntoResponse {
+async fn get_metrics(uri: Uri) -> impl IntoResponse {
   let uri = uri.path();
   trace!("{uri}");
   let mut body = "".to_owned();
@@ -166,7 +171,7 @@ async fn get_metrics(
   (StatusCode::OK, headers, body)
 }
 
-pub fn init_admin_connection() -> Session{
+pub fn init_admin_connection() -> Session {
   let username = env_var!(required "USERNAME");
   let password = env_var!(required "PASSWORD");
   let server_url = env_var!(required "SERVER_URL");
@@ -184,10 +189,7 @@ async fn main() {
   env_logger::init();
   info!("starting tibco-ems-operator");
   // look for responsible settings
-  let responsible = env_var!(optional "RESPONSIBLE_FOR");
-  if !responsible.is_empty() {
-    info!("RESPONSIBLE_FOR {responsible} => only object for that instance will be monitored");
-  }
+  let _res_test = RESPONSIBLE_FOR.lock().unwrap().clone();
 
   //add panic hook to shutdown engine on error
   let orig_hook = panic::take_hook();
@@ -237,7 +239,7 @@ async fn main() {
   info!("done");
 }
 
-#[cfg(not(feature = "windows"))]
+#[cfg(not(target_os = "windows"))]
 async fn sighup() {
   let mut stream = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
   loop {
@@ -247,7 +249,7 @@ async fn sighup() {
   }
 }
 
-#[cfg(feature = "windows")]
+#[cfg(target_os = "windows")]
 async fn sighup() {
   tokio::signal::ctrl_c().await.unwrap();
   info!("got SIGTERM, shutting down");

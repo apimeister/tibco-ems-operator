@@ -49,14 +49,16 @@ static ADMIN_CONNECTION: Lazy<Mutex<Session>> = Lazy::new(|| Mutex::new(super::i
 pub async fn watch_topics() -> Result<(),()>{
   let crds: Api<Topic> = get_topic_client().await;
   let updater: Api<Topic> = crds.clone(); 
-  let lp = ListParams::default();
+  let mut lp = ListParams::default();
 
-  let responsible_for = env_var!(optional "RESPONSIBLE_FOR");
-  if responsible_for.is_empty() {
-    info!("subscribing to events of type topics.tibcoems.apimeister.com/v1");
-  }else{
+  let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
+  if !responsible_for.is_empty() {
     info!("subscribing to events of type topics.tibcoems.apimeister.com/v1 for instance {responsible_for}");
+    lp = lp.labels(format!("tibcoems.apimeister.com/owner={responsible_for}").as_str());
+  } else {
+    info!("subscribing to events of type topics.tibcoems.apimeister.com/v1");
   }
+
   let mut last_version: String = "0".to_owned();
   loop{
     debug!("new loop iteration with offset {}",last_version);
@@ -73,8 +75,6 @@ pub async fn watch_topics() -> Result<(),()>{
         WatchEvent::Added(mut topic) =>{
           let topic_name = get_topic_name(&topic);
           last_version = ResourceExt::resource_version(&topic).unwrap();
-          //check responsibilty for topic
-          if check_responsibility(&topic) {
             {
               let mut res = KNOWN_TOPICS.lock().unwrap();
               match res.get(&topic_name) {
@@ -92,15 +92,10 @@ pub async fn watch_topics() -> Result<(),()>{
               let pp = PostParams::default();
               let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;
             }
-          } else {
-            trace!("not responsible for topic {}", &topic_name);
-          }
         },
         WatchEvent::Deleted(topic) =>{
           let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
           let topic_name = get_topic_name(&topic);
-          //check responsibility for queue
-          if check_responsibility(&topic) {
             if do_not_delete == "TRUE" {
               warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", topic_name);
             }else{
@@ -108,9 +103,6 @@ pub async fn watch_topics() -> Result<(),()>{
             }
             let mut res = KNOWN_TOPICS.lock().unwrap();
             res.remove(&topic_name);
-          } else {
-            trace!("not responsible for topic {}", &topic_name);
-          }
           last_version = ResourceExt::resource_version(&topic).unwrap();
         },
         WatchEvent::Error(e) => {
@@ -279,24 +271,4 @@ fn delete_topic(topic: &Topic){
       panic!("failed to delete topic");
     },
   }
-}
-
-/// checks whether the monitored ems is responsible for this topic instance
-fn check_responsibility(topic: &Topic) -> bool {
-  let responsible_for = std::env::var("RESPONSIBLE_FOR");
-  match responsible_for {
-    Ok(val) => {
-      let annotations = topic.annotations();
-      for (key, value) in annotations {
-        if key == "tibcoems.apimeister.com/owner" && value == &val {
-          return true;
-        }
-      }
-    },
-    Err(_err) => {
-      //if not setting is found, assume all topic are responsible
-      return true;
-    },
-  }
-  false
 }
