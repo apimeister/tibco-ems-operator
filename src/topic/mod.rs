@@ -56,6 +56,7 @@ pub async fn watch_topics() -> Result<(),()>{
     info!("subscribing to events of type topics.tibcoems.apimeister.com/v1 for instance {responsible_for}");
     lp = lp.labels(format!("tibcoems.apimeister.com/owner={responsible_for}").as_str());
   } else {
+    lp = lp.labels("!tibcoems.apimeister.com/owner");
     info!("subscribing to events of type topics.tibcoems.apimeister.com/v1");
   }
 

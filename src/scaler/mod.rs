@@ -284,7 +284,7 @@ pub async fn run(){
           if key.starts_with("tibcoems.apimeister.com/queue") {
             //check known queues
             let queue_name = val;
-            let all_queues = super::queue::QUEUES.lock().unwrap();
+            let all_queues = super::queue::KNOWN_QUEUES.lock().unwrap();
             if all_queues.contains_key(&queue_name) {
               //known queue
               if scale_targets.contains_key(&queue_name) {
