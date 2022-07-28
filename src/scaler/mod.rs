@@ -226,8 +226,18 @@ pub async fn run(){
   let client = Client::try_default().await.expect("getting default client");
   let namespace = env_var!(required "KUBERNETES_NAMESPACE");
   let deployments: Api<Deployment> = Api::namespaced(client, &namespace);
-  let lp = ListParams::default()
+  let mut lp = ListParams::default()
     .labels("tibcoems.apimeister.com/scaling=true");
+
+  let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
+  if !responsible_for.is_empty() {
+    info!("scaling Deployments for instance {responsible_for}");
+    lp = lp.labels(format!("tibcoems.apimeister.com/owner={responsible_for}").as_str());
+  } else {
+    lp = lp.labels("!tibcoems.apimeister.com/owner");
+    info!("scaling Deployments without label: tibcoems.apimeister.com/owner ");
+  }
+
   let mut interval = time::interval(Duration::from_millis(12000));
   interval.tick().await;
 
@@ -282,9 +292,9 @@ pub async fn run(){
         let mut max_scale = 10u32;
         for (key,val) in labels {
           if key.starts_with("tibcoems.apimeister.com/queue") {
-            //check known queues
+            //check queues on EMS Server
             let queue_name = val;
-            let all_queues = super::queue::KNOWN_QUEUES.lock().unwrap();
+            let all_queues = super::queue::QUEUES.lock().unwrap();
             if all_queues.contains_key(&queue_name) {
               //known queue
               if scale_targets.contains_key(&queue_name) {
@@ -301,7 +311,7 @@ pub async fn run(){
               }
             }else{
               //queue does not exist
-              warn!("queue cannot be monitored, because it does not exists: {queue_name}");
+              warn!("queue cannot be monitored, because it does not exist on EMS: {queue_name}");
             }
             //add to trigger map
             trigger_map.insert(d_name.clone(),0);
