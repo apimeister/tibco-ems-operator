@@ -54,7 +54,7 @@ pub async fn watch_bridges() -> Result<(),()>{
       match status {
         WatchEvent::Added(bridge) =>{
           let mut res = KNOWN_BRIDGES.lock().unwrap();
-          let bridge_name = ResourceExt::name(&bridge);
+          let bridge_name = ResourceExt::name_any(&bridge);
             match res.get(&bridge_name) {
               Some(_bridge) => debug!("bridge already known {}", &bridge_name),
               None => {
@@ -66,13 +66,13 @@ pub async fn watch_bridges() -> Result<(),()>{
           last_version = ResourceExt::resource_version(&bridge).unwrap();
         },
         WatchEvent::Modified(bridge) => {
-          let bridge_name = ResourceExt::name(&bridge);
+          let bridge_name = ResourceExt::name_any(&bridge);
           info!("Modified {}", bridge_name);
           create_bridge(&bridge);
           last_version = ResourceExt::resource_version(&bridge).unwrap();          
         },
         WatchEvent::Deleted(bridge) => {
-          let bridge_name = ResourceExt::name(&bridge);
+          let bridge_name = ResourceExt::name_any(&bridge);
           let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
           if do_not_delete == "TRUE" {
             warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", bridge_name);

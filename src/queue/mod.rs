@@ -92,7 +92,7 @@ pub async fn watch_queues() -> Result<(),()>{
               }
             }
             if queue.status.is_none() {
-              let name = ResourceExt::name(&queue);
+              let name = ResourceExt::name_any(&queue);
               let q_json = serde_json::to_string(&queue).unwrap();
               let pp = PostParams::default();
               let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;

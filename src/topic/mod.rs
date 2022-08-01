@@ -88,7 +88,7 @@ pub async fn watch_topics() -> Result<(),()>{
               }
             }
             if topic.status.is_none() {
-              let name = ResourceExt::name(&topic);
+              let name = ResourceExt::name_any(&topic);
               let q_json = serde_json::to_string(&topic).unwrap();
               let pp = PostParams::default();
               let _result = updater.replace_status(&name, &pp, q_json.as_bytes().to_vec()).await;

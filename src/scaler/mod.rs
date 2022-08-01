@@ -244,7 +244,7 @@ pub async fn run(){
   loop{
     interval.tick().await;
     for deployment in deployments.list(&lp).await.unwrap() {
-      let deployment_name = ResourceExt::name(&deployment).clone();
+      let deployment_name = ResourceExt::name_any(&deployment).clone();
       //acquire shared objects
       let mut known_scalings = KNOWN_STATES.lock().unwrap();
       let mut scale_targets = SCALE_TARGETS.lock().unwrap();
