@@ -1192,9 +1192,9 @@ dependencies = [
 
 [[package]]
 name = "tibco_ems"
-version = "0.4.12"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78a20e12635ed73fc6afb2da05cf824df5262297901918e4b14a2413811648b1"
+checksum = "a061994019fd81d61244fb0a1cc7f697fb5791d1e5cee962266797b16b868068"
 dependencies = [
  "enum_extract",
  "log",
