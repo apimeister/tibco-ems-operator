@@ -26,7 +26,7 @@ pub static KNOWN_STATES: Lazy<Mutex<HashMap<String,State>>> = Lazy::new(|| Mutex
 pub static SCALE_TARGETS: Lazy<Mutex<HashMap<String,Vec<String>>>> = Lazy::new(|| Mutex::new(HashMap::new()) );
 
 /// Represents the state of the k8s Deployment
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone,Debug,PartialEq,Eq)]
 pub struct StateValue{
   /// timestamp of the last update
   activity_timestamp: u64,
@@ -46,7 +46,7 @@ pub struct StateValue{
   max_scale: u32,
 }
 /// Represents the state of the k8s Deployment
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone,Debug,PartialEq,Eq)]
 pub enum State{
   /// deployment is scaled to 0 replicas
   Inactive(StateValue),
