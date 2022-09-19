@@ -236,9 +236,9 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b2cf0344971ee6c64c31be0d530793fba457d322dfec2810c453d0ef228f9c3"
+checksum = "c90bf5f19754d10198ccb95b70664fc925bd1fc090a0fd9a6ebc54acc8cd6272"
 dependencies = [
  "atty",
  "humantime",
@@ -583,12 +583,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "k8s-openapi"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d9455388f4977de4d0934efa9f7d36296295537d774574113a20f6082de03da"
+dependencies = [
+ "base64",
+ "bytes",
+ "chrono",
+ "serde",
+ "serde-value",
+ "serde_json",
+]
+
+[[package]]
 name = "kube"
 version = "0.74.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a527a8001a61d8d470dab27ac650889938760c243903e7cd90faaf7c60a34bdd"
 dependencies = [
- "k8s-openapi",
+ "k8s-openapi 0.15.0",
  "kube-client",
  "kube-core",
  "kube-derive",
@@ -612,7 +626,7 @@ dependencies = [
  "hyper-openssl",
  "hyper-timeout",
  "jsonpath_lib",
- "k8s-openapi",
+ "k8s-openapi 0.15.0",
  "kube-core",
  "openssl",
  "pem",
@@ -638,7 +652,7 @@ dependencies = [
  "chrono",
  "form_urlencoded",
  "http",
- "k8s-openapi",
+ "k8s-openapi 0.15.0",
  "once_cell",
  "schemars",
  "serde",
@@ -1169,7 +1183,7 @@ dependencies = [
  "env_logger",
  "futures",
  "hyper",
- "k8s-openapi",
+ "k8s-openapi 0.16.0",
  "kube",
  "log",
  "once_cell",
