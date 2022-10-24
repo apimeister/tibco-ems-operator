@@ -1,17 +1,17 @@
 FROM rust as emslibs
 # fetch an update version of the link under
 # https://www.tibco.com/products/tibco-messaging/downloads
-RUN curl -O 'https://edownloads.tibco.com/Installers/tap/EMS-CE/10.1.0/TIB_ems-ce_10.1.0_linux_x86_64.zip?SJCDPTPG=1664894484_0d06307c78b282cde6f14ef49798397b&ext=.zip'
+RUN curl -O 'https://edownloads.tibco.com/Installers/tap/EMS-CE/10.2.0/TIB_ems-ce_10.2.0_linux_x86_64.zip?SJCDPTPG=1669192426_ea2d0b6f1650884f8bc067c74f222351&ext=.zip'
 RUN unzip TIB*
-RUN tar xzf TIB_ems-ce_10.1.0/tar/TIB_ems-ce_10.1.0_linux_x86_64-c_dev_kit.tar.gz
-RUN tar xzf TIB_ems-ce_10.1.0/tar/TIB_ems-ce_10.1.0_linux_x86_64-c_dotnet_client.tar.gz
-RUN tar xzf TIB_ems-ce_10.1.0/tar/TIB_ems-ce_10.1.0_linux_x86_64-thirdparty.tar.gz
+RUN tar xzf TIB_ems-ce_10.2.0/tar/TIB_ems-ce_10.2.0_linux_x86_64-c_dev_kit.tar.gz
+RUN tar xzf TIB_ems-ce_10.2.0/tar/TIB_ems-ce_10.2.0_linux_x86_64-c_dotnet_client.tar.gz
+RUN tar xzf TIB_ems-ce_10.2.0/tar/TIB_ems-ce_10.2.0_linux_x86_64-thirdparty.tar.gz
 
 FROM rust as builder
 WORKDIR /app
 COPY Cargo.toml .
 COPY src ./src
-COPY --from=emslibs /opt/tibco/ems/10.1/lib/libtibems.so /lib/x86_64-linux-gnu/libtibems.so
+COPY --from=emslibs /opt/tibco/ems/10.2/lib/libtibems.so /lib/x86_64-linux-gnu/libtibems.so
 # do a clippy check
 RUN rustup component add clippy
 RUN cargo clippy --all -- -D warnings
