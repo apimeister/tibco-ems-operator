@@ -13,6 +13,7 @@ COPY Cargo.toml .
 COPY src ./src
 COPY --from=emslibs /opt/tibco/ems/10.2/lib/libtibems.so /lib/x86_64-linux-gnu/libtibems.so
 COPY --from=emslibs /opt/tibco/ems/10.2/lib/libssl.so.3 /lib/x86_64-linux-gnu/libssl.so.3
+COPY --from=emslibs /opt/tibco/ems/10.2/lib/libcrypto.so.3 /lib/x86_64-linux-gnu/libcrypto.so.3
 # do a clippy check
 RUN rustup component add clippy
 RUN cargo clippy --all -- -D warnings
