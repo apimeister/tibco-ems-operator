@@ -22,7 +22,9 @@ RUN cargo install --path .
 
 # Bundle Stage
 FROM debian:stable-slim as final
-COPY --from=emslibs /opt/tibco/ems/10.1/lib/libtibems.so /lib/x86_64-linux-gnu/libtibems.so
+COPY --from=emslibs /opt/tibco/ems/10.2/lib/libtibems.so /lib/x86_64-linux-gnu/libtibems.so
+COPY --from=emslibs /opt/tibco/ems/10.2/lib/libssl.so.3 /lib/x86_64-linux-gnu/libssl.so.3
+COPY --from=emslibs /opt/tibco/ems/10.2/lib/libcrypto.so.3 /lib/x86_64-linux-gnu/libcrypto.so.3
 COPY --from=builder /usr/local/cargo/bin/tibco-ems-operator .
 ENV RUST_BACKTRACE=full
 ENV RUST_LOG=info
