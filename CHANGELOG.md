@@ -1,4 +1,9 @@
 
+# tibco-ems-operator:54/2022-11-04
+
+* update to ems 10.3
+* update openssl to v3 (required by ems libs)
+
 # tibco-ems-operator:53/2022-06-29
 
 * switch "tibcoems.apimeister.com/owner" from annotations to labels so we can filter out on every request and dont have to do double checks
