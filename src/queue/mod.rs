@@ -304,7 +304,7 @@ fn create_queue(queue: &mut Queue){
   if queue.spec.expiration.is_none() { queue.spec.expiration=Some(0) }
   queue.spec.overflowPolicy=Some(0);
   if let Some(val) = queue.spec.prefetch { 
-    queue.spec.prefetch = Some(val as u32);
+    queue.spec.prefetch = Some(val);
   }else{
     queue.spec.prefetch = Some(0);
   }

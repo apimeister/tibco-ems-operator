@@ -247,7 +247,7 @@ fn create_topic(topic: &mut Topic){
   if topic.spec.expiration.is_none() { topic.spec.expiration=Some(0) };
   topic.spec.overflowPolicy=Some(0);
   if let Some(val) = topic.spec.prefetch { 
-    topic.spec.prefetch = Some(val as u32);
+    topic.spec.prefetch = Some(val);
   }else{
     topic.spec.prefetch = Some(0);
   }
