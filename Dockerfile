@@ -1,11 +1,11 @@
 FROM rust as emslibs
 # fetch an update version of the link under
 # https://www.tibco.com/products/tibco-messaging/downloads
-RUN curl -O 'https://edownloads.tibco.com/Installers/tap/EMS-CE/10.2.0/TIB_ems-ce_10.2.0_linux_x86_64.zip?SJCDPTPG=1669192426_ea2d0b6f1650884f8bc067c74f222351&ext=.zip'
+RUN curl -O 'https://edownloads.tibco.com/Installers/tap/EMS-CE/10.2.1/TIB_ems-ce_10.2.1_linux_x86_64.zip?SJCDPTPG=1674844650_15ad83017b08faab8c6dcd2f932c6cde&ext=.zip'
 RUN unzip TIB*
-RUN tar xzf TIB_ems-ce_10.2.0/tar/TIB_ems-ce_10.2.0_linux_x86_64-c_dev_kit.tar.gz
-RUN tar xzf TIB_ems-ce_10.2.0/tar/TIB_ems-ce_10.2.0_linux_x86_64-c_dotnet_client.tar.gz
-RUN tar xzf TIB_ems-ce_10.2.0/tar/TIB_ems-ce_10.2.0_linux_x86_64-thirdparty.tar.gz
+RUN tar xzf TIB_ems-ce_10.2.1/tar/TIB_ems-ce_10.2.1_linux_x86_64-c_dev_kit.tar.gz
+RUN tar xzf TIB_ems-ce_10.2.1/tar/TIB_ems-ce_10.2.1_linux_x86_64-c_dotnet_client.tar.gz
+RUN tar xzf TIB_ems-ce_10.2.1/tar/TIB_ems-ce_10.2.1_linux_x86_64-thirdparty.tar.gz
 
 FROM rust as builder
 WORKDIR /app
