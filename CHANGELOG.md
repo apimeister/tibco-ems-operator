@@ -1,4 +1,10 @@
 
+# tibco-ems-operator:55/2023-01-09
+
+* upgrade kubernetes min version to 1.22
+* update deps
+* apply cargo fmt
+
 # tibco-ems-operator:54/2022-11-04
 
 * update to ems 10.3
