@@ -39,9 +39,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1304eab461cf02bd70b083ed8273388f9724c549b316ba3d1e213ce0e9e7fb7e"
+checksum = "678c5130a507ae3a7c797f9a17393c14849300b8440eac47cdb90a5bdcb3a543"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -72,9 +72,9 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f487e40dc9daee24d8a1779df88522f159a54a980f99cfbe43db0be0bd3444a8"
+checksum = "1cae3e661676ffbacb30f1a824089a8c9150e71017f7e1e38f2aa32009188d34"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1326,9 +1326,22 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "tibco_ems",
+ "tibco_ems 0.4.16",
+ "tibco_ems 0.5.0",
  "tokio",
  "urlencoding",
+]
+
+[[package]]
+name = "tibco_ems"
+version = "0.4.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04a2307050f6249a48d73b0385af0393dcb0d3a4741c5cd487cc6e14e4b8df04"
+dependencies = [
+ "enum_extract",
+ "log",
+ "serde",
+ "tibco_ems-sys",
 ]
 
 [[package]]
@@ -1340,7 +1353,6 @@ dependencies = [
  "enum_extract",
  "log",
  "serde",
- "tibco_ems-sys",
 ]
 
 [[package]]
