@@ -1,4 +1,9 @@
 
+# tibco-ems-operator:56/2023-01-27
+
+* support expiration property
+* update deps
+
 # tibco-ems-operator:55/2023-01-09
 
 * upgrade kubernetes min version to 1.22
