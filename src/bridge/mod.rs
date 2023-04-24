@@ -2,7 +2,7 @@ use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
 use kube::CustomResource;
 use kube::{
-    api::{Api, ListParams, ResourceExt, WatchEvent},
+    api::{Api, ResourceExt, WatchEvent, WatchParams},
     Client,
 };
 use once_cell::sync::Lazy;
@@ -38,7 +38,7 @@ static ADMIN_CONNECTION: Lazy<Mutex<Session>> =
 
 pub async fn watch_bridges() -> Result<(), ()> {
     let crds: Api<Bridge> = get_bridge_client().await;
-    let mut lp = ListParams::default();
+    let mut lp = WatchParams::default();
 
     let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
     if !responsible_for.is_empty() {

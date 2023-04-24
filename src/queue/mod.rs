@@ -5,7 +5,7 @@ use futures::{StreamExt, TryStreamExt};
 use kube::api::WatchEvent;
 use kube::CustomResource;
 use kube::{
-    api::{Api, ListParams, PostParams, ResourceExt},
+    api::{Api, WatchParams, PostParams, ResourceExt},
     Client,
 };
 use once_cell::sync::Lazy;
@@ -62,7 +62,7 @@ static ADMIN_CONNECTION: Lazy<Mutex<Session>> =
 pub async fn watch_queues() -> Result<(), ()> {
     let crds: Api<Queue> = get_queue_client().await;
     let updater: Api<Queue> = crds.clone();
-    let mut lp = ListParams::default();
+    let mut lp = WatchParams::default();
 
     let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
     if !responsible_for.is_empty() {

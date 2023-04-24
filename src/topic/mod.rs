@@ -1,9 +1,9 @@
 use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
-use kube::api::WatchEvent;
+use kube::api::{WatchEvent, WatchParams};
 use kube::CustomResource;
 use kube::{
-    api::{Api, ListParams, PostParams, ResourceExt},
+    api::{Api, PostParams, ResourceExt},
     Client,
 };
 use once_cell::sync::Lazy;
@@ -58,7 +58,7 @@ static ADMIN_CONNECTION: Lazy<Mutex<Session>> =
 pub async fn watch_topics() -> Result<(), ()> {
     let crds: Api<Topic> = get_topic_client().await;
     let updater: Api<Topic> = crds.clone();
-    let mut lp = ListParams::default();
+    let mut lp = WatchParams::default();
 
     let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
     if !responsible_for.is_empty() {
