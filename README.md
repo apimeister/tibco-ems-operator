@@ -54,7 +54,6 @@ The operator can be deploymed mutliple times into one namespace, as long as the 
 
 ### Operator
 
-
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
