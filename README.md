@@ -1,8 +1,9 @@
 # tibco-ems-operator
 
+[![codecov](https://codecov.io/gh/apimeister/tibco-ems-operator/branch/main/graph/badge.svg?token=43YLP79W80)](https://codecov.io/gh/apimeister/tibco-ems-operator)  
 This project is a work in progress. It is not yet functional and I will update this readme, if the operator is ready to use.
 
-## available ENV properties:
+## available ENV properties
 
 | name |cardinality | value |  description |
 | --- | --- | --- | --- |
@@ -24,7 +25,7 @@ The operator can be used to dynamically scale deployment from zero to one.
 
 To enable scaling on a deployment, the following labels have to be set.
 
-```
+```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -38,7 +39,7 @@ spec:
   ...
 ```
 
-#### Other Scaling Properties
+### Other Scaling Properties
 
 | property | default | description |
 |----------|---------|-------------|
@@ -54,7 +55,7 @@ The operator can be deploymed mutliple times into one namespace, as long as the 
 ### Operator
 
 
-```
+```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -72,7 +73,7 @@ spec:
 
 ### Managed object
 
-```
+```yaml
 apiVersion: tibcoems.apimeister.com/v1
 kind: Queue
 metadata:
