@@ -5,7 +5,7 @@ use futures::{StreamExt, TryStreamExt};
 use kube::api::WatchEvent;
 use kube::CustomResource;
 use kube::{
-    api::{Api, WatchParams, PostParams, ResourceExt},
+    api::{Api, PostParams, ResourceExt, WatchParams},
     Client,
 };
 use once_cell::sync::Lazy;
