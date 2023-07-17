@@ -5,7 +5,7 @@ authors = ["Jens Walter <jens@apimeister.com>"]
 edition = "2021"
 
 [dependencies]
-kube = { version = "0.83", features = ["derive"] }
+kube = { version = "0.84", features = ["derive"] }
 k8s-openapi = { version = "0.18", default-features = false, features = ["v1_22"] }
 schemars = { version = "0.8", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
