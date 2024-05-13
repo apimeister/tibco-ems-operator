@@ -24,7 +24,7 @@ env-var = "1"
 urlencoding = "2"
 axum = { version = "0.7" }
 
-[target.'cfg(no_tibco_driver)'.dependencies]
+[target.'cfg(test)'.dependencies]
 tibco_ems = { version = "0.5", default-features = false }
 [target.'cfg(target_os = "macos")'.dependencies]
 tibco_ems = { version = "0.5", default-features = false }

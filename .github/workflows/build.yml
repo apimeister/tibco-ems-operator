@@ -15,5 +15,5 @@ jobs:
     - name: Run clippy
       run: cargo clippy --all -- -D warnings
     - name: Cargo Test
-      run: cargo test --features no_tibco_driver -q
+      run: cargo test -q
     - run: cargo build --features no_tibco_driver
