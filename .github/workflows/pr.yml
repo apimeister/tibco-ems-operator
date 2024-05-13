@@ -10,19 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+- uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
-        submodules: 'true'
-    - name: Install Rust
-      run: rustup update stable
-    - name: Run rustfmt
-      run: cargo fmt --all -- --check
+        components: rustfmt,clippy
+    - name: Rustfmt Check
+      uses: actions-rust-lang/rustfmt@v1
     - name: Run clippy
       run: cargo clippy --all -- -D warnings
-    - uses: taiki-e/install-action@nextest
     - name: Cargo Test
-      run: cargo nextest run --no-fail-fast
-    - name: Cargo build
-      run: cargo build --features no_tibco_driver
+      run: cargo test -q
+    - run: cargo build --features no_tibco_driver
     - name: merge
       if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
       run: |
