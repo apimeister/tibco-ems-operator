@@ -4,6 +4,9 @@ version = "58.0.0"
 authors = ["Jens Walter <jens@apimeister.com>"]
 edition = "2021"
 
+[features]
+no_tibco_driver = []
+
 [dependencies]
 kube = { version = "0.91", features = ["derive"] }
 k8s-openapi = { version = "0.22", default-features = false, features = ["v1_25"] }
@@ -21,6 +24,8 @@ env-var = "1"
 urlencoding = "2"
 axum = { version = "0.7" }
 
+[target.'cfg(no_tibco_driver)'.dependencies]
+tibco_ems = { version = "0.5", default-features = false }
 [target.'cfg(target_os = "macos")'.dependencies]
 tibco_ems = { version = "0.5", default-features = false }
 [target.'cfg(not(target_os = "macos"))'.dependencies]
