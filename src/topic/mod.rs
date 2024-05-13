@@ -140,7 +140,7 @@ pub async fn watch_topics() -> Result<(), ()> {
                         error!("Error {:?}", e);
                         error!("resetting offset to 0");
                     }
-                    last_version = "0".to_owned();
+                    "0".clone_into(&mut last_version);
                 }
                 _ => {}
             };
@@ -246,10 +246,10 @@ fn get_topic_name(topic: &Topic) -> String {
     let mut tname: String = String::from("");
     //check for name in spec
     match &topic.spec.name {
-        Some(q) => tname = q.to_owned(),
+        Some(q) => q.clone_into(&mut tname),
         None => {
             if let Some(n) = &topic.metadata.name {
-                tname = n.to_owned();
+                n.clone_into(&mut tname);
                 tname.make_ascii_uppercase();
             }
         }

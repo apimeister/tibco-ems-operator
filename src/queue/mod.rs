@@ -145,7 +145,7 @@ pub async fn watch_queues() -> Result<(), ()> {
                         error!("Error {:?}", e);
                         error!("resetting offset to 0");
                     }
-                    last_version = "0".to_owned();
+                    "0".clone_into(&mut last_version);
                 }
                 _ => {}
             };
@@ -300,10 +300,10 @@ fn get_queue_name(queue: &Queue) -> String {
     let mut qname: String = String::from("");
     //check for name in spec
     match &queue.spec.name {
-        Some(q) => qname = q.to_owned(),
+        Some(q) => q.clone_into(&mut qname),
         None => {
             if let Some(n) = &queue.metadata.name {
-                qname = n.to_owned();
+                n.clone_into(&mut qname);
                 qname.make_ascii_uppercase();
             }
         }

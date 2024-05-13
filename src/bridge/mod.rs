@@ -117,7 +117,7 @@ pub async fn watch_bridges() -> Result<(), ()> {
                         error!("Error {:?}", e);
                         error!("resetting offset to 0");
                     }
-                    last_version = "0".to_owned();
+                    "0".clone_into(&mut last_version);
                 }
                 _ => {}
             };
