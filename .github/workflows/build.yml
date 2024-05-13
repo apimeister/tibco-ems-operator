@@ -15,4 +15,4 @@ jobs:
     - name: Run clippy
       run: cargo clippy --all -- -D warnings
     - name: Cargo build
-      run: cargo build --tests
+      run: cargo build --features no_tibco_driver
