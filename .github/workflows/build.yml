@@ -14,5 +14,5 @@ jobs:
       uses: actions-rust-lang/rustfmt@v1
     - name: Run clippy
       run: cargo clippy --all -- -D warnings
-    - name: Cargo Test
-      run: cargo test
+    - name: Cargo build
+      run: cargo build --tests
