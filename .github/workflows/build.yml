@@ -15,5 +15,4 @@ jobs:
     - name: Run clippy
       run: cargo clippy --all -- -D warnings
     - name: Cargo Test
-      run: cargo test -q --cfg test
-    - run: cargo build --cfg test
+      run: cargo test
