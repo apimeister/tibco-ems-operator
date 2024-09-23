@@ -1,6 +1,6 @@
 [package]
 name = "tibco-ems-operator"
-version = "58.0.0"
+version = "60.0.0"
 authors = ["Jens Walter <jens@apimeister.com>"]
 edition = "2021"
 
@@ -8,8 +8,10 @@ edition = "2021"
 no_tibco_driver = []
 
 [dependencies]
-kube = { version = "0.92", features = ["derive"] }
-k8s-openapi = { version = "0.22", default-features = false, features = ["v1_25"] }
+kube = { version = "0.95", features = ["derive"] }
+k8s-openapi = { version = "0.23", default-features = false, features = [
+    "v1_30",
+] }
 schemars = { version = "0.8", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde = { version = "1", features = ["derive"] }
@@ -25,9 +27,9 @@ urlencoding = "2"
 axum = { version = "0.7" }
 
 [target.'cfg(feature="no_tibco_driver")'.dependencies]
-tibco_ems = { version = "0.5", default-features = false }
+tibco_ems = { version = "0.5", default-features = false, features = ["serde"] }
 [target.'cfg(target_os = "macos")'.dependencies]
-tibco_ems = { version = "0.5", default-features = false }
+tibco_ems = { version = "0.5", default-features = false, features = ["serde"] }
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 tibco_ems = { version = "0.5" }
 # tibco_ems = { git = "https://github.com/apimeister/tibco-ems-rs.git"}

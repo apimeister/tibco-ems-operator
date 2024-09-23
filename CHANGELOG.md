@@ -1,3 +1,7 @@
+# tibco-ems-operator:60/2024-09-23
+
+* update deps
+
 # tibco-ems-operator:59/2024-04-01
 
 * update deps
