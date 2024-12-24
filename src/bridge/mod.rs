@@ -178,9 +178,8 @@ fn create_bridge_object(bridge: &Bridge) -> BridgeInfo {
         bridge_info.target = Destination::Topic(bridge.spec.target_name.clone());
     }
     // add selector if given
-    match &bridge.spec.selector {
-        Some(sel) => bridge_info.selector = Some(sel.clone()),
-        None => {}
+    if let Some(sel) = &bridge.spec.selector {
+        bridge_info.selector = Some(sel.clone())
     }
 
     // show what we have created in debug mode
