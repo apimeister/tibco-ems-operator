@@ -24,7 +24,7 @@ log = "0.4"
 env_logger = "0.11"
 env-var = "1"
 urlencoding = "2"
-axum = { version = "0.7" }
+axum = { version = "0.8" }
 
 [target.'cfg(feature="no_tibco_driver")'.dependencies]
 tibco_ems = { version = "0.5", default-features = false, features = ["serde"] }
