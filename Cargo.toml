@@ -8,7 +8,7 @@ edition = "2021"
 no_tibco_driver = []
 
 [dependencies]
-kube = { version = "0.98", features = ["derive"] }
+kube = { version = "0.99", features = ["derive"] }
 k8s-openapi = { version = "0.24", default-features = false, features = [
     "v1_30",
 ] }
@@ -24,7 +24,7 @@ log = "0.4"
 env_logger = "0.11"
 env-var = "1"
 urlencoding = "2"
-axum = { version = "0.7" }
+axum = { version = "0.8" }
 
 [target.'cfg(feature="no_tibco_driver")'.dependencies]
 tibco_ems = { version = "0.5", default-features = false, features = ["serde"] }
