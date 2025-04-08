@@ -247,8 +247,8 @@ async fn main() {
     let addr = "0.0.0.0:8080";
     let app = Router::new()
         .route("/", get(api))
-        .route("/queue/:queuename", get(get_queue_stats))
-        .route("/topic/:topicname", get(get_topic_stats))
+        .route("/queue/{queuename}", get(get_queue_stats))
+        .route("/topic/{topicname}", get(get_topic_stats))
         .route("/metrics", get(get_metrics));
 
     info!("listening on {}", addr);
