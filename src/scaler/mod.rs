@@ -326,15 +326,9 @@ pub async fn run() {
                         //add to trigger map
                         trigger_map.insert(d_name.clone(), 0);
                     } else if key.starts_with("tibcoems.apimeister.com/threshold") {
-                        threshold = match val.parse::<i64>() {
-                            Ok(result) => result,
-                            Err(_err) => 100,
-                        };
+                        threshold = val.parse::<i64>().unwrap_or(100i64);
                     } else if key.starts_with("tibcoems.apimeister.com/maxScale") {
-                        max_scale = match val.parse::<u32>() {
-                            Ok(result) => result,
-                            Err(_err) => 10,
-                        };
+                        max_scale = val.parse::<u32>().unwrap_or(10u32);
                     }
                 }
                 //check replica count and create new state object

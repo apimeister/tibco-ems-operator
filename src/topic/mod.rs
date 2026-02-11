@@ -113,11 +113,8 @@ pub async fn watch_topics() -> Result<(), ()> {
                     }
                     if topic.status.is_none() {
                         let name = ResourceExt::name_any(&topic);
-                        let q_json = serde_json::to_string(&topic).unwrap();
                         let pp = PostParams::default();
-                        let _result = updater
-                            .replace_status(&name, &pp, q_json.as_bytes().to_vec())
-                            .await;
+                        let _result = updater.replace_status(&name, &pp, &topic).await;
                     }
                 }
                 WatchEvent::Deleted(topic) => {
@@ -218,11 +215,8 @@ pub async fn watch_topics_status() -> Result<(), ()> {
                 let latest_topic: Topic = updater.get(&obj_name).await.unwrap();
                 local_topic.metadata.resource_version =
                     ResourceExt::resource_version(&latest_topic);
-                let t_json = serde_json::to_string(&local_topic).unwrap();
                 let pp = PostParams::default();
-                let result = updater
-                    .replace_status(&obj_name, &pp, t_json.as_bytes().to_vec())
-                    .await;
+                let result = updater.replace_status(&obj_name, &pp, &local_topic).await;
                 match result {
                     Ok(_ignore) => {}
                     Err(err) => {

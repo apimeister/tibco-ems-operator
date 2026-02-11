@@ -118,11 +118,8 @@ pub async fn watch_queues() -> Result<(), ()> {
                     }
                     if queue.status.is_none() {
                         let name = ResourceExt::name_any(&queue);
-                        let q_json = serde_json::to_string(&queue).unwrap();
                         let pp = PostParams::default();
-                        let _result = updater
-                            .replace_status(&name, &pp, q_json.as_bytes().to_vec())
-                            .await;
+                        let _result = updater.replace_status(&name, &pp, &queue).await;
                     }
                 }
                 WatchEvent::Deleted(queue) => {
@@ -225,11 +222,8 @@ pub async fn watch_queues_status() -> Result<(), ()> {
                 let updater: Api<Queue> = get_queue_client().await;
                 let latest_queue: Queue = updater.get(&obj_name).await.unwrap();
                 local_q.metadata.resource_version = ResourceExt::resource_version(&latest_queue);
-                let q_json = serde_json::to_string(&local_q).unwrap();
                 let pp = PostParams::default();
-                let result = updater
-                    .replace_status(&obj_name, &pp, q_json.as_bytes().to_vec())
-                    .await;
+                let result = updater.replace_status(&obj_name, &pp, &local_q).await;
                 match result {
                     Ok(_ignore) => {}
                     Err(err) => {
