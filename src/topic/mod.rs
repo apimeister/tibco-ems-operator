@@ -1,18 +1,18 @@
 use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
-use kube::api::{WatchEvent, WatchParams};
 use kube::CustomResource;
+use kube::api::{WatchEvent, WatchParams};
 use kube::{
-    api::{Api, PostParams, ResourceExt},
     Client,
+    api::{Api, PostParams, ResourceExt},
 };
 use once_cell::sync::Lazy;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tibco_ems::admin::TopicInfo;
 use tibco_ems::Session;
+use tibco_ems::admin::TopicInfo;
 use tokio::time::{self, Duration};
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
@@ -62,7 +62,9 @@ pub async fn watch_topics() -> Result<(), ()> {
 
     let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
     if !responsible_for.is_empty() {
-        info!("subscribing to events of type topics.tibcoems.apimeister.com/v1 for instance {responsible_for}");
+        info!(
+            "subscribing to events of type topics.tibcoems.apimeister.com/v1 for instance {responsible_for}"
+        );
         lp = lp.labels(format!("tibcoems.apimeister.com/owner={responsible_for}").as_str());
     } else {
         lp = lp.labels("!tibcoems.apimeister.com/owner");
@@ -103,9 +105,9 @@ pub async fn watch_topics() -> Result<(), ()> {
                     {
                         let mut res = KNOWN_TOPICS.lock().unwrap();
                         match res.get(&topic_name) {
-                            Some(_topic) => debug!("topic already known {}", &topic_name),
+                            Some(_topic) => debug!("topic already known {}", topic_name),
                             None => {
-                                info!("adding topic {}", &topic_name);
+                                info!("adding topic {}", topic_name);
                                 create_topic(&mut topic);
                                 res.insert(topic_name, topic.clone());
                             }
@@ -121,7 +123,10 @@ pub async fn watch_topics() -> Result<(), ()> {
                     let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
                     let topic_name = get_topic_name(&topic);
                     if do_not_delete == "TRUE" {
-                        warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", topic_name);
+                        warn!(
+                            "delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",
+                            topic_name
+                        );
                     } else {
                         delete_topic(&topic);
                     }

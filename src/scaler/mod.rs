@@ -1,10 +1,10 @@
 use k8s_openapi::api::apps::v1::Deployment;
+use kube::Error;
 use kube::api::PatchParams;
 use kube::core::subresource::Scale;
-use kube::Error;
 use kube::{
-    api::{Api, ListParams, Patch, ResourceExt},
     Client,
+    api::{Api, ListParams, Patch, ResourceExt},
 };
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -321,7 +321,9 @@ pub async fn run() {
                             }
                         } else {
                             //queue does not exist
-                            warn!("queue cannot be monitored, because it does not exist on EMS: {queue_name}");
+                            warn!(
+                                "queue cannot be monitored, because it does not exist on EMS: {queue_name}"
+                            );
                         }
                         //add to trigger map
                         trigger_map.insert(d_name.clone(), 0);

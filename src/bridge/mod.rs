@@ -2,8 +2,8 @@ use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
 use kube::CustomResource;
 use kube::{
-    api::{Api, ResourceExt, WatchEvent, WatchParams},
     Client,
+    api::{Api, ResourceExt, WatchEvent, WatchParams},
 };
 use once_cell::sync::Lazy;
 use schemars::JsonSchema;
@@ -42,7 +42,9 @@ pub async fn watch_bridges() -> Result<(), ()> {
 
     let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
     if !responsible_for.is_empty() {
-        info!("subscribing to events of type bridges.tibcoems.apimeister.com/v1 for instance {responsible_for}");
+        info!(
+            "subscribing to events of type bridges.tibcoems.apimeister.com/v1 for instance {responsible_for}"
+        );
         lp = lp.labels(format!("tibcoems.apimeister.com/owner={responsible_for}").as_str());
     } else {
         lp = lp.labels("!tibcoems.apimeister.com/owner");
@@ -81,9 +83,9 @@ pub async fn watch_bridges() -> Result<(), ()> {
                     let mut res = KNOWN_BRIDGES.lock().unwrap();
                     let bridge_name = ResourceExt::name_any(&bridge);
                     match res.get(&bridge_name) {
-                        Some(_bridge) => debug!("bridge already known {}", &bridge_name),
+                        Some(_bridge) => debug!("bridge already known {}", bridge_name),
                         None => {
-                            info!("adding bridge {}", &bridge_name);
+                            info!("adding bridge {}", bridge_name);
                             create_bridge(&bridge);
                             res.insert(bridge_name, bridge.clone());
                         }
@@ -100,9 +102,12 @@ pub async fn watch_bridges() -> Result<(), ()> {
                     let bridge_name = ResourceExt::name_any(&bridge);
                     let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
                     if do_not_delete == "TRUE" {
-                        warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", bridge_name);
+                        warn!(
+                            "delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",
+                            bridge_name
+                        );
                     } else {
-                        info!("deleting bridge {}", &bridge_name);
+                        info!("deleting bridge {}", bridge_name);
                         delete_bridge(&bridge);
                     }
                     let mut res = KNOWN_BRIDGES.lock().unwrap();

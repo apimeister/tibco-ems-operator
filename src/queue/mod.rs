@@ -2,19 +2,19 @@ use super::scaler::State;
 use super::scaler::StateTrigger;
 use env_var::env_var;
 use futures::{StreamExt, TryStreamExt};
-use kube::api::WatchEvent;
 use kube::CustomResource;
+use kube::api::WatchEvent;
 use kube::{
-    api::{Api, PostParams, ResourceExt, WatchParams},
     Client,
+    api::{Api, PostParams, ResourceExt, WatchParams},
 };
 use once_cell::sync::Lazy;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tibco_ems::admin::QueueInfo;
 use tibco_ems::Session;
+use tibco_ems::admin::QueueInfo;
 use tokio::time::{self, Duration};
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Clone, Debug, JsonSchema)]
@@ -66,7 +66,9 @@ pub async fn watch_queues() -> Result<(), ()> {
 
     let responsible_for = super::RESPONSIBLE_FOR.lock().unwrap().clone();
     if !responsible_for.is_empty() {
-        info!("subscribing to events of type queues.tibcoems.apimeister.com/v1 for instance {responsible_for}");
+        info!(
+            "subscribing to events of type queues.tibcoems.apimeister.com/v1 for instance {responsible_for}"
+        );
         lp = lp.labels(format!("tibcoems.apimeister.com/owner={responsible_for}").as_str());
     } else {
         lp = lp.labels("!tibcoems.apimeister.com/owner");
@@ -108,9 +110,9 @@ pub async fn watch_queues() -> Result<(), ()> {
                     {
                         let mut res = KNOWN_QUEUES.lock().unwrap();
                         match res.get(&queue_name) {
-                            Some(_queue) => debug!("queue already known {}", &queue_name),
+                            Some(_queue) => debug!("queue already known {}", queue_name),
                             None => {
-                                info!("adding queue {}", &queue_name);
+                                info!("adding queue {}", queue_name);
                                 create_queue(&mut queue);
                                 res.insert(queue_name, queue.clone());
                             }
@@ -126,7 +128,10 @@ pub async fn watch_queues() -> Result<(), ()> {
                     let do_not_delete = env_var!(optional "DO_NOT_DELETE_OBJECTS", default:"FALSE");
                     let queue_name = get_queue_name(&queue);
                     if do_not_delete == "TRUE" {
-                        warn!("delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)", queue_name);
+                        warn!(
+                            "delete event for {} (not executed because of DO_NOT_DELETE_OBJECTS setting)",
+                            queue_name
+                        );
                     } else {
                         delete_queue(&queue);
                     }
